@@ -218,7 +218,7 @@ function build(R, users) {
     const x = { id: o.id, guid: g, compGuid: lc(o.IdentyfikatorCompanies), comp: cname(o.IdentyfikatorCompanies, o.FirmaID), ac: cac(o.IdentyfikatorCompanies),
       owner: uname(o.OpiekunLookupId) || o.TECScreator || '(brak)', stage: o.Etap1 || '', start: toD(o.Pocz_x0105_tek_TECS), end: toD(o.Koniec_TECS),
       wart: num(o.Warto_x015b__x0107_), offerSum: has ? offerSum : null, nOffers: ls.length, nNotes: ni.n, lastNote: ni.last, tp: !!o.TP, name: o.Nazwaszansysprzeda_x017c_y_TECS || '',
-      demoFlag: !!o.Demo, demoOffice: !!o.DemoOffice, demoAdm: uname(o.DemoAdmLookupId), follow: toD(o.Data_Follow_Up), nrAnsys: o.Numer_klienta || '', lines: ls };
+      raw: o, demoFlag: !!o.Demo, demoOffice: !!o.DemoOffice, demoAdm: uname(o.DemoAdmLookupId), follow: toD(o.Data_Follow_Up), nrAnsys: o.Numer_klienta || '', lines: ls };
     x.value = (x.offerSum != null && x.offerSum > 0) ? x.offerSum : (x.wart || 0);
     x.valSrc = (x.offerSum != null && x.offerSum > 0) ? 'oferta' : 'pole';
     x.grp = x.stage === 'Demo' ? 'demo' : x.tp ? 'tp' : ['Przygotowanie oferty','Oferta wysłana'].includes(x.stage) ? 'open' : ['Zamówione','Wystawiona faktura'].includes(x.stage) ? 'won' : x.stage === 'Rezygnacja z TECS' ? 'lost' : 'other';
@@ -260,13 +260,13 @@ function build(R, users) {
 
 /* ================= stan + routing ================= */
 const ST = { mod: 'dashboard', tab: 'todo', sort: {}, g: { owner: '', comp: '', q: '', seg: 'all' },
-  todo: { plus7: false, desc: false }, akt: { od: new Date(TODAY.getFullYear(), TODAY.getMonth(), 1), do: TODAY, h: '', r: '', f: '' },
+  todo: { plus7: false, desc: false }, plan: { who: 'me', ciche: 14 }, akt: { od: new Date(TODAY.getFullYear(), TODAY.getMonth(), 1), do: TODAY, h: '', r: '', f: '' },
   rs: { tryb: 'szanse', od: null, do: null, desc: true, h: '', f: '', r: '', t: '', s: '', to: '', te: '', tf: '', pf: '', pl: '', onlyTP: false },
   hg: { pre: false, all: false, st: '', op: '' }, df: { all: false, op: '', st: '', f: '', lim: 60 }, sstage: '' };
 try { const s = JSON.parse(localStorage.getItem('mescocrm') || '{}'); if (s.g) Object.assign(ST.g, s.g); } catch (e) {}
 const save = () => { try { localStorage.setItem('mescocrm', JSON.stringify({ g: ST.g })); } catch (e) {} };
 const MODS = {
-  dashboard: { name: 'Dashboard', icon: 'DASHBOARD', tabs: [['todo','To-Do','clock'],['akt','Aktywności','activity'],['sprz','Raport sprzedaży','OPPSY'],['godz','Godziny TECS / PreSales','bars'],['firmy','Bilans firm','FIRMY']] },
+  dashboard: { name: 'Dashboard', icon: 'DASHBOARD', tabs: [['todo','To-Do','clock'],['plan','Plan na tydzień','KALENDARZ'],['akt','Aktywności','activity'],['sprz','Raport sprzedaży','OPPSY'],['godz','Godziny TECS / PreSales','bars'],['firmy','Bilans firm','FIRMY']] },
   tecs: { name: 'TECS — odnowienia', icon: 'TECSY', g: true, tabs: [['przeglad','Przegląd','DASHBOARD'],['otwarte','Do zamknięcia','clock'],['zamkniete','Zamknięte','check'],['ceny','Kontrola cen','euro'],['tp','TP','tag'],['bez-oferty','Bez oferty','alert'],['bez-notatek','Bez notatek','note']] },
   oppsy: { name: 'Szanse sprzedaży', icon: 'OPPSY', g: true, tabs: [['s-przeglad','Przegląd','DASHBOARD'],['s-otwarte','W toku','clock'],['s-zamkniete','Wygrane / przegrane','check'],['s-alerty','Alerty','alert']] },
   firmy: { name: 'Klienci — wykorzystanie TECS', icon: 'FIRMY', g: true, noQ: true, tabs: [['klienci','Aktywne TECS i support','SUPPORTY']] },
@@ -369,7 +369,7 @@ function render() {
 }
 function tabCounts() {
   const c = {};
-  if (ST.mod === 'dashboard') { const t = todoList(); c.todo = t.length; c['todo!'] = t.some(n => n.fu < TODAY); }
+  if (ST.mod === 'dashboard') { const t = todoList(); c.todo = t.length; c['todo!'] = t.some(n => n.fu < TODAY); const P = planData(); c.plan = P.total; c['plan!'] = P.pilne > 0; }
   if (ST.mod === 'tecs') { const L = gf(DB.tecs).filter(o => !['demo','tp'].includes(o.grp)); c.otwarte = L.filter(o => o.grp === 'open').length; c['bez-oferty'] = L.filter(o => o.grp === 'open' && !o.nOffers).length; c['bez-oferty!'] = 1;
     c['bez-notatek'] = L.filter(o => o.grp === 'open' && !o.nNotes && o.days != null && o.days <= 90).length; c['bez-notatek!'] = 1; c.ceny = L.reduce((a, o) => a + o.priceIssues.filter(p => p.diff != null).length, 0); c['ceny!'] = 1; c.tp = gf(DB.tecs).filter(o => o.grp === 'tp').length; }
   if (ST.mod === 'oppsy') { const S = gf(DB.sales); c['s-otwarte'] = S.filter(o => o.grp === 'open').length; c['s-alerty'] = S.filter(o => o.grp === 'open' && o.flags.some(f => f[1] === 'c-red')).length; c['s-alerty!'] = 1; }
@@ -404,6 +404,71 @@ AFTER.todo = () => {
   const call = async (id) => { const n = DB.notes.find(x => x.id === id); const v = Math.min(n.calls + 1, 100); try { await patchItem('Notes', n.id, { LiczbaPolaczen: String(v) }); n.calls = v; } catch (e) { toast('Nie zapisano licznika połączeń', 'err'); } return n; };
   document.querySelectorAll('[data-call]').forEach(a => a.addEventListener('click', () => call(+a.dataset.call).then(() => render())));
   document.querySelectorAll('[data-calln]').forEach(a => a.addEventListener('click', () => call(+a.dataset.calln).then(n => noteModal(n))));
+};
+
+/* --- Plan na tydzień: zadania wyliczone z danych --- */
+const weekEnd = () => addDays(TODAY, (7 - TODAY.getDay()) % 7); // najbliższa niedziela
+function planData() {
+  const P = ST.plan, who = P.who === 'me' ? ME.name : P.who;
+  const mine = o => !who || o.owner === who;
+  const opps = DB.sales.filter(o => o.grp === 'open' && mine(o) && o.close && o.days <= 30).sort((a, b) => a.days - b.days);
+  const tecs = DB.tecs.filter(o => o.grp === 'open' && mine(o) && o.end && o.days <= 90).sort((a, b) => a.days - b.days);
+  const fu = DB.notes.filter(n => !n.fuDone && n.fu && n.fu < TODAY && (!who || n.creator === who)).sort((a, b) => a.fu - b.fu);
+  // „bez odpowiedzi”: oferta wysłana, a od ostatniego kontaktu (notatki lub daty oferty) minęło ≥ N dni
+  const since = (last, sent) => { const d = [last, sent].filter(Boolean).sort((a, b) => b - a)[0]; return d ? Math.round((TODAY - d) / 864e5) : null; };
+  const offS = DB.sales.filter(o => o.grp === 'open' && mine(o) && (o.raw.OFP || (['Oferta','Rewizja oferty','Decyzja'].includes(o.stage) && o.nOffers)))
+    .map(o => ({ kind: 'opp', o, sent: toD(o.raw.OFDate), cisza: since(o.lastNote, toD(o.raw.OFDate)) }));
+  const offT = DB.tecs.filter(o => o.stage === 'Oferta wysłana' && mine(o) && !(o.days != null && o.days < -60))
+    .map(o => ({ kind: 'tecs', o, sent: null, cisza: since(o.lastNote, null) }));
+  const offers = offS.concat(offT).filter(x => x.cisza == null || x.cisza >= P.ciche).sort((a, b) => (b.cisza ?? 9999) - (a.cisza ?? 9999));
+  const we = weekEnd(), inWeek = d => d && d >= TODAY && d <= we;
+  const pilne = opps.filter(o => o.days < 0).length + tecs.filter(o => o.days < 0).length + fu.length;
+  return { who, opps, tecs, fu, offers, we, inWeek, pilne, total: opps.length + tecs.length + fu.length + offers.length };
+}
+const dueCell = (d, days, inWeek) => !d ? '<span class="chip c-amb">brak daty</span>' : `<span style="white-space:nowrap">${dpl(d)}</span> ${days < 0 ? `<span class="chip c-red">${-days} dni po</span>` : days === 0 ? '<span class="chip c-red">dziś</span>' : inWeek ? `<span class="chip c-amb">ten tydzień</span>` : `<span class="chip c-mut">za ${days} dni</span>`}`;
+const actBtns = (kind, id) => ME.staff ? `<button class="btn" data-pnote="${kind}|${id}" title="Dodaj notatkę">${svg('note')}</button>` : '';
+VIEWS.plan = () => {
+  const P = planData(), S = ST.plan;
+  const lastC = d => d ? `${dpl(d)} <span style="color:#9CA3AF">(${Math.round((TODAY - d) / 864e5)} dni temu)</span>` : '<span class="chip c-amb">brak</span>';
+  const opC = [{ h: 'Szansa', key: 'name', f: o => `${oppLink(o)}<div style="font-size:11px;color:#9CA3AF">${esc(o.comp)}</div>` }, { h: 'Etap', v: o => STAGES.indexOf(o.stage), f: o => `<span class="chip c-br">${esc(o.stage || '—')}</span>` },
+    { h: 'Zamknięcie', key: 'days', f: o => dueCell(o.close, o.days, P.inWeek(o.close)) }, { h: 'Wartość', key: 'eur', num: 1, f: o => eur(o.eur) }, { h: 'MEDDIC', key: 'meddic', num: 1, f: medChip },
+    { h: 'Ostatni kontakt', v: o => o.lastNote, f: o => lastC(o.lastNote) }, { h: 'Co zrobić', v: o => o.flags.length, f: o => chips(o.flags) || (o.days < 0 ? '' : '<span style="color:#9CA3AF">potwierdź termin / decyzję</span>') }, { h: '', f: o => actBtns('opp', o.id) }];
+  if (!P.who) opC.splice(2, 0, { h: 'Opiekun', key: 'owner' });
+  const tcC = [{ h: 'TECS', key: 'comp', f: o => `${compLink(o.comp, o.compGuid)}<div style="font-size:11px;color:#9CA3AF">${tecsLink(o)} ${esc(o.name)}</div>` }, { h: 'Etap', key: 'stage', f: o => stageChip(o.stage) },
+    { h: 'Koniec TECS', key: 'days', f: o => dueCell(o.end, o.days, P.inWeek(o.end)) }, { h: 'Wartość', key: 'value', num: 1, f: o => eur(o.value) }, { h: 'Oferty', key: 'nOffers', num: 1 },
+    { h: 'Ostatni kontakt', v: o => o.lastNote, f: o => lastC(o.lastNote) }, { h: 'Co zrobić', v: o => o.flags.length, f: o => chips(o.flags) || '<span style="color:#9CA3AF">wyślij / domknij odnowienie</span>' }, { h: '', f: o => actBtns('tecs', o.id) }];
+  if (!P.who) tcC.splice(2, 0, { h: 'Opiekun', key: 'owner' });
+  const fuC = [{ h: 'Follow-up', key: 'fu', f: n => `${dpl(n.fu)} <span class="chip c-red">${Math.round((TODAY - n.fu) / 864e5)} dni po</span>` }, { h: 'Firma', key: 'firma', f: n => compLink(n.firma, n.guid) }, { h: 'Osoba', key: 'osoba' },
+    { h: 'Rodzaj', key: 'rodzaj', f: n => `<span class="chip c-br">${esc(n.rodzaj || '—')}</span>` }, { h: 'Notatka', key: 'text', f: n => `<span title="${esc(n.text)}" style="color:#6B7280">${esc(String(n.text).replace(/\n/g, ' ').slice(0, 110))}</span>` },
+    { h: '', f: n => ME.staff ? `<span style="white-space:nowrap"><button class="btn ok" data-pdone="${n.id}" title="Oznacz jako zrobiony">✓</button> <button class="btn" data-pfu="${n.id}" title="Notatka + kolejny follow-up">${svg('note')}</button></span>` : '' }];
+  if (!P.who) fuC.splice(1, 0, { h: 'Kto', key: 'creator' });
+  const ofC = [{ h: 'Co', v: x => x.kind, f: x => x.kind === 'opp' ? '<span class="chip c-br">Szansa</span>' : '<span class="chip c-vio">TECS</span>' },
+    { h: 'Szansa / firma', v: x => x.o.comp, f: x => x.kind === 'opp' ? `${oppLink(x.o)}<div style="font-size:11px;color:#9CA3AF">${esc(x.o.comp)}</div>` : `${compLink(x.o.comp, x.o.compGuid)}<div style="font-size:11px;color:#9CA3AF">${tecsLink(x.o)} ${esc(x.o.name)}</div>` },
+    { h: 'Etap', v: x => x.o.stage, f: x => stageChip(x.o.stage) }, { h: 'Wartość', v: x => x.o.value, num: 1, f: x => eur(x.o.value) }, { h: 'Oferta wysłana', v: x => x.sent, f: x => x.sent ? dpl(x.sent) : '<span style="color:#9CA3AF">—</span>' },
+    { h: 'Ostatni kontakt', v: x => x.o.lastNote, f: x => lastC(x.o.lastNote) }, { h: 'Cisza', v: x => x.cisza ?? 9999, num: 1, f: x => x.cisza == null ? '<span class="chip c-red">brak kontaktu</span>' : `<span class="chip ${x.cisza >= 30 ? 'c-red' : 'c-amb'}">${x.cisza} dni</span>` }, { h: '', f: x => actBtns(x.kind, x.o.id) }];
+  if (!P.who) ofC.splice(2, 0, { h: 'Opiekun', v: x => x.o.owner, f: x => esc(x.o.owner) });
+  const sec = (icon, c, bg, t, sub, body) => `<div class="card panel">${ptitle(icon, c, bg, t, sub)}${body}</div>`;
+  const owners = DB.owners;
+  return `<div class="card panel">${ptitle('KALENDARZ', '#5B6CDB', '#EEF0FC', 'Plan na tydzień', `${dpl(TODAY)} – ${dpl(P.we)} · zadania wyliczone automatycznie z szans, TECS i notatek`,
+    `<select id="plWho"><option value="me" ${S.who === 'me' ? 'selected' : ''}>Moje (${esc(ME.name)})</option><option value="" ${S.who === '' ? 'selected' : ''}>Cały zespół</option>${owners.filter(o => o !== ME.name).map(o => `<option ${S.who === o ? 'selected' : ''}>${esc(o)}</option>`).join('')}</select>`)}
+    <div class="kpis">${kpi('Oppsy do zamknięcia ≤30 dni', P.opps.length, `${eur(sum(P.opps, o => o.eur))} · ${P.opps.filter(o => o.days < 0).length} po terminie`, 'OPPSY', '#5B6CDB', '#EEF0FC')}
+      ${kpi('TECSy do zrobienia (≤3 mies.)', P.tecs.length, `${eur(sum(P.tecs, o => o.value))} · ${P.tecs.filter(o => o.days < 0).length} po terminie`, 'TECSY', '#0D9488', '#E0F5F3')}
+      ${kpi('Zaległe follow-upy', P.fu.length, P.fu.length ? 'najstarszy z ' + dpl(P.fu[0].fu) : 'wszystko zrobione', 'clock', '#DC2626', '#FEE2E2')}
+      ${kpi('Oferty bez odpowiedzi', P.offers.length, `cisza ≥ ${S.ciche} dni`, 'box', '#D97706', '#FEF3E2')}</div></div>
+  ${sec('OPPSY', '#5B6CDB', '#EEF0FC', 'Szanse sprzedaży — zamknięcie w ciągu 30 dni', 'Status1 = Aktywny, Spodziewane zamknięcie ≤ dziś + 30 dni (także te po terminie)', table('pl1', opC, P.opps, { k: P.who ? 2 : 3, asc: true }, { empty: 'Brak szans z zamknięciem w najbliższych 30 dniach' }))}
+  ${sec('TECSY', '#0D9488', '#E0F5F3', 'TECSy do zrobienia — koniec w ciągu 3 miesięcy', 'Etap: Przygotowanie oferty / Oferta wysłana, Koniec TECS ≤ dziś + 90 dni', table('pl2', tcC, P.tecs, { k: P.who ? 2 : 3, asc: true }, { empty: 'Brak TECS do odnowienia w najbliższych 3 miesiącach' }))}
+  ${sec('clock', '#DC2626', '#FEE2E2', 'Zaległe follow-upy', 'Follow-up przed dzisiejszą datą, nieoznaczony jako zrobiony', table('pl3', fuC, P.fu, { k: 0, asc: true }, { empty: 'Brak zaległych follow-upów 🎉' }))}
+  ${sec('box', '#D97706', '#FEF3E2', 'Wysłane oferty bez odpowiedzi', `Szanse z „oferta wysłana” (OFP) lub na etapie Oferta/Rewizja/Decyzja z ofertą + TECS „Oferta wysłana”, bez notatki od ≥ <select id="plCisza" style="height:24px;font-size:11.5px">${[7, 14, 21, 30].map(d => `<option ${S.ciche === d ? 'selected' : ''}>${d}</option>`).join('')}</select> dni`, table('pl4', ofC, P.offers, { k: P.who ? 6 : 7, asc: false }, { empty: 'Brak ofert czekających na odpowiedź' }))}`;
+};
+AFTER.plan = () => {
+  $('#plWho').onchange = e => { ST.plan.who = e.target.value; render(); };
+  $('#plCisza').onchange = e => { ST.plan.ciche = +e.target.value; render(); };
+  document.querySelectorAll('[data-pdone]').forEach(b => b.onclick = async () => { const n = DB.notes.find(x => x.id === +b.dataset.pdone); b.disabled = true;
+    try { await patchItem('Notes', n.id, { FollowUpStatus: true }); n.fuDone = true; toast('Follow-up oznaczony jako zrobiony', 'ok'); render(); } catch (e) { b.disabled = false; toast('Błąd zapisu: ' + e.message, 'err'); } });
+  document.querySelectorAll('[data-pfu]').forEach(b => b.onclick = () => noteModal(DB.notes.find(x => x.id === +b.dataset.pfu)));
+  document.querySelectorAll('[data-pnote]').forEach(b => b.onclick = () => { const [k, id] = b.dataset.pnote.split('|');
+    if (k === 'opp') { const x = DB.sales.find(o => o.id === +id); noteModal(oppNoteSrc(x)); }
+    else { const o = DB.tecs.find(t => t.id === +id); noteModal({ firma: o.comp, guid: o.compGuid, osoba: '', tel: '', contact: '', etap: o.stage, etapP: '', opps: o.guid, oppName: o.name || 'TECS', raw: { IdentyfikatorCompanies: o.raw.IdentyfikatorCompanies || '', Opps_ID: o.raw.TECSGUID || '' } }); } });
 };
 /* --- modal notatki po follow-upie --- */
 function noteModal(src) {
@@ -691,6 +756,7 @@ const STF = [
   [['RTL','Czy potrzebne są szkolenia?','area',2], ['RWH','Czy potrzebny jest sprzęt?','area',2], ['RCR','Czy będzie zmiana konfiguracji?','area',2]],
   [['WRDL','Data deadline','date'], ['WROF','Czy jest Order Form od klienta?','bool'], ['WRO','Zamówienie od klienta','area',2]],
 ];
+const oppNoteSrc = x => ({ firma: x.comp, guid: x.compGuid, osoba: x.raw.DISCH || '', tel: '', contact: '', etap: x.stage, etapP: '', opps: x.guid, oppName: x.name, raw: { IdentyfikatorCompanies: x.raw.IdentyfikatorCompanies || '', Opps_ID: x.raw.OPPSGUID || '' } });
 const urlOf = v => !v ? '' : typeof v === 'string' ? v : (v.Url || v.url || '');
 const curSale = () => DB.sales.find(o => o.id === ST.oppId);
 async function saveSale(x, fields, msg) {
@@ -787,7 +853,7 @@ AFTER.opp = () => {
     $('#lS').onclick = () => { $('#lS').disabled = true; saveSale(x, { Status1: 'Zamknięty przegrany', ...p, Zamkni_x0119_tyOppsNotes: $('#lN').value }, 'Opps zamknięty jako przegrany').then(() => { close(); render(); }).catch(e => { $('#lS').disabled = false; toast('Błąd zapisu: ' + e.message, 'err'); }); };
   });
   // notatki
-  const addNote = () => noteModal({ firma: x.comp, guid: x.compGuid, osoba: r.DISCH || '', tel: '', contact: '', etap: x.stage, etapP: '', opps: x.guid, oppName: x.name, raw: { IdentyfikatorCompanies: r.IdentyfikatorCompanies || '', Opps_ID: r.OPPSGUID || '' } });
+  const addNote = () => noteModal(oppNoteSrc(x));
   $('#dsNote').onclick = $('#dsNote2').onclick = addNote;
   document.querySelectorAll('[data-n]').forEach(d => d.onclick = () => { const n = DB.notes.find(z => z.id === +d.dataset.n);
     openModal(`${mHead('note', '#5B6CDB', '#EEF0FC', `${dpl(n.data)}  ·  ${esc(n.osoba || '—')}  ·  ${esc(n.rodzaj)}`, `Etap: ${esc(n.etap || '—')}  ·  dodał(a): ${esc(n.creator || '—')}${n.fu ? '  ·  follow-up: ' + dpl(n.fu) : ''}`)}
