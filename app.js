@@ -135,6 +135,9 @@ const F = {
   KursyWalut: ['Waluta','Kurs'],
   activities: ['Notes_types'],
   MEScoStaff: ['Imi_x0119_iNazwisko','Email'],
+  MarketingKontakty: ['Imie','Nazwisko','Email','Telefon','Firma','Zrodlo','GUIDWebinar','GUIDKontaktu','Obecny','KonwertLead','FollowUp'],
+  Contacts: ['Email','ContactGUID','IdentyfikatorCompanies','FirmaID','Imi_x0119_','Nazwisko','Stanowisko'],
+  Webinary: ['Tytul','GUIDWebinar','DataWebinaru','Status','GrupaDocelowa'],
 };
 async function loadAll() {
   loader('Pobieram dane z SharePoint…');
@@ -255,6 +258,14 @@ function build(R, users) {
     const x = DB.szk[g] = DB.szk[g] || { A: 0, B: 0 }; x[k] += num(s.WartoscDarmowegoSzkolenia) || 0; }));
   // listy pomocnicze
   DB.owners = [...new Set(DB.tecs.map(o => o.owner).concat(DB.sales.map(o => o.owner)).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'pl'));
+  // marketing: kontakty CRM po e-mailu, webinary, zapisy
+  DB.contacts = R.Contacts.map(c => ({ id: c.id, guid: c.ContactGUID || '', mail: lc(c.Email), compGuid: lc(c.IdentyfikatorCompanies), firma: c.FirmaID || '', name: ((c.Imi_x0119_ || '') + ' ' + (c.Nazwisko || '')).trim(), stan: c.Stanowisko || '' }));
+  DB.contactByMail = {}; DB.contactByGuid = {}; DB.contacts.forEach(c => { if (c.mail) DB.contactByMail[c.mail] = c; if (c.guid) DB.contactByGuid[lc(c.guid)] = c; });
+  DB.webinars = R.Webinary.map(w => ({ id: w.id, guid: lc(w.GUIDWebinar), title: (w.Tytul || '').trim() || '(bez tytułu)', date: toD(w.DataWebinaru), status: w.Status || '', grupa: w.GrupaDocelowa || '' }));
+  DB.webBy = {}; DB.webinars.forEach(w => DB.webBy[w.guid] = w);
+  DB.mkt = R.MarketingKontakty.map(m => { const mail = lc(m.Email), c = (m.GUIDKontaktu && DB.contactByGuid[lc(m.GUIDKontaktu)]) || DB.contactByMail[mail] || null;
+    return { id: m.id, mail, name: ((m.Imie || '') + ' ' + (m.Nazwisko || '')).replace(/\s+/g, ' ').trim(), tel: m.Telefon || '', firmaTxt: (m.Firma || '').trim(), zrodlo: (m.Zrodlo || '').trim(), web: DB.webBy[lc(m.GUIDWebinar)] || { guid: lc(m.GUIDWebinar), title: '(nieznane wydarzenie)', date: null },
+      obecny: m.Obecny === 'Tak' ? true : m.Obecny === 'Nie' ? false : null, guidK: m.GUIDKontaktu || '', contact: c, lead: !!m.KonwertLead }; });
   DB.quarters = [...new Map(DB.tecs.concat(DB.sales).filter(o => o.fq).map(o => [o.fq.key, o.fq])).values()].sort((a, b) => a.key - b.key);
 }
 
@@ -262,7 +273,7 @@ function build(R, users) {
 const ST = { mod: 'dashboard', tab: 'todo', sort: {}, g: { owner: '', comp: '', q: '', seg: 'all' },
   todo: { plus7: false, desc: false }, plan: { who: 'me', ciche: 14 }, akt: { od: new Date(TODAY.getFullYear(), TODAY.getMonth(), 1), do: TODAY, h: '', r: '', f: '' },
   rs: { tryb: 'szanse', od: null, do: null, desc: true, h: '', f: '', r: '', t: '', s: '', to: '', te: '', tf: '', pf: '', pl: '', onlyTP: false },
-  hg: { pre: false, all: false, st: '', op: '' }, df: { all: false, op: '', st: '', f: '', lim: 60 }, sstage: '' };
+  hg: { pre: false, all: false, st: '', op: '' }, mk: { q: '', crm: '', min: 1, att: '', web: '' }, df: { all: false, op: '', st: '', f: '', lim: 60 }, sstage: '' };
 try { const s = JSON.parse(localStorage.getItem('mescocrm') || '{}'); if (s.g) Object.assign(ST.g, s.g); } catch (e) {}
 const save = () => { try { localStorage.setItem('mescocrm', JSON.stringify({ g: ST.g })); } catch (e) {} };
 const MODS = {
@@ -270,9 +281,10 @@ const MODS = {
   tecs: { name: 'TECS — odnowienia', icon: 'TECSY', g: true, tabs: [['przeglad','Przegląd','DASHBOARD'],['otwarte','Do zamknięcia','clock'],['zamkniete','Zamknięte','check'],['ceny','Kontrola cen','euro'],['tp','TP','tag'],['bez-oferty','Bez oferty','alert'],['bez-notatek','Bez notatek','note']] },
   oppsy: { name: 'Szanse sprzedaży', icon: 'OPPSY', g: true, tabs: [['s-przeglad','Przegląd','DASHBOARD'],['s-otwarte','W toku','clock'],['s-zamkniete','Wygrane / przegrane','check'],['s-alerty','Alerty','alert']] },
   firmy: { name: 'Klienci — wykorzystanie TECS', icon: 'FIRMY', g: true, noQ: true, tabs: [['klienci','Aktywne TECS i support','SUPPORTY']] },
+  marketing: { name: 'Marketing — webinary i wydarzenia', icon: 'MARKETING', tabs: [['m-osoby','Uczestnicy','users'],['m-firmy','Firmy','FIRMY'],['m-web','Wydarzenia','KALENDARZ']] },
   demo: { name: 'Kody demo', icon: 'DEMO', g: true, noQ: true, tabs: [['demo-akt','Aktywne i kończące się','clock'],['demo-all','Wszystkie demo','list'],['demo-konw','Konwersja','OPPSY']] },
 };
-const NAV = [['HR',null],['FIRMY','firmy'],['KONTAKTY',null],['KALENDARZ',null],['CENNIK',null],['SZKOLENIA',null],['OPPSY','oppsy'],['TECSY','tecs'],['DEMO','demo'],['PROSPECTING',null],['SUPPORTY',null],['ZADANIA',null],['MARKETING',null],['DASHBOARD','dashboard'],['ADMIN',null],['USTAWIENIA',null]];
+const NAV = [['HR',null],['FIRMY','firmy'],['KONTAKTY',null],['KALENDARZ',null],['CENNIK',null],['SZKOLENIA',null],['OPPSY','oppsy'],['TECSY','tecs'],['DEMO','demo'],['PROSPECTING',null],['SUPPORTY',null],['ZADANIA',null],['MARKETING','marketing'],['DASHBOARD','dashboard'],['ADMIN',null],['USTAWIENIA',null]];
 function fromHash() { const [m, t, id] = location.hash.slice(1).split('/').map(decodeURIComponent);
   if (m === 'oppsy' && t === 'opp' && id) { ST.mod = m; ST.tab = 'opp'; ST.oppId = +id; return; }
   if (m === 'oppsy' && t === 's-otwarte') ST.sstage = id || '';
@@ -374,6 +386,7 @@ function tabCounts() {
     c['bez-notatek'] = L.filter(o => o.grp === 'open' && !o.nNotes && o.days != null && o.days <= 90).length; c['bez-notatek!'] = 1; c.ceny = L.reduce((a, o) => a + o.priceIssues.filter(p => p.diff != null).length, 0); c['ceny!'] = 1; c.tp = gf(DB.tecs).filter(o => o.grp === 'tp').length; }
   if (ST.mod === 'oppsy') { const S = gf(DB.sales); c['s-otwarte'] = S.filter(o => o.grp === 'open').length; c['s-alerty'] = S.filter(o => o.grp === 'open' && o.flags.some(f => f[1] === 'c-red')).length; c['s-alerty!'] = 1; }
   if (ST.mod === 'firmy') { c.klienci = clients().filter(x => x.alert).length; c['klienci!'] = 1; }
+  if (ST.mod === 'marketing') { const P = mktPeople(); c['m-osoby'] = P.length; c['m-web'] = DB.webinars.filter(w => DB.mkt.some(m => m.web === w)).length; }
   if (ST.mod === 'demo') { c['demo-akt'] = demos().filter(d => d.active).length; c['demo-all'] = demos().length; }
   return c;
 }
@@ -874,6 +887,80 @@ AFTER.opp = () => {
       <button class="btn" id="ofRe" style="height:36px;margin-left:12px">${svg('euro')} Przelicz wartość</button></div>`, 1200);
     $('#ofRe').onclick = e => { close(); recalc(e.currentTarget); }; };
 };
+
+
+/* ================= MARKETING — webinary / wydarzenia ================= */
+const pct = (a, b) => b ? Math.round(a / b * 100) + '%' : '—';
+const attChip = (a, r) => { if (!r) return '—'; const p = a / r; return `<span class="chip ${p >= .75 ? 'c-ok' : p >= .4 ? 'c-amb' : 'c-red'}">${Math.round(p * 100)}%</span>`; };
+const compOf = m => { const c = m.contact; if (c) { const co = DB.compBy[c.compGuid]; return { name: co ? co.name : (c.firma || m.firmaTxt || '—'), guid: c.compGuid, crm: !!co }; } return { name: m.firmaTxt || '—', guid: '', crm: false }; };
+function mktPeople() {
+  const by = {};
+  DB.mkt.forEach(m => { const k = m.mail || 'id' + m.id; const p = by[k] = by[k] || { mail: m.mail, name: m.name, tel: m.tel, rows: [], contact: null, comp: null };
+    p.rows.push(m); if (m.contact) p.contact = m.contact; if (!p.name && m.name) p.name = m.name; });
+  return Object.values(by).map(p => { p.comp = compOf(p.rows.find(r => r.contact) || p.rows[0]); p.reg = p.rows.length; p.att = p.rows.filter(r => r.obecny === true).length; p.abs = p.rows.filter(r => r.obecny === false).length;
+    p.rows.sort((a, b) => (b.web.date || 0) - (a.web.date || 0)); p.last = p.rows[0].web.date; p.lastAtt = (p.rows.find(r => r.obecny) || {}).web; p.crm = !!p.contact;
+    const g = p.comp.guid; p.openOpps = g ? DB.sales.filter(o => o.compGuid === g && o.grp === 'open').length : 0; p.tecs = g ? DB.tecs.some(o => o.compGuid === g && o.grp !== 'demo' && o.start && o.end && o.start <= TODAY && o.end >= TODAY) : false; return p; });
+}
+const mFilt = P => { const F = ST.mk; return P.filter(p => (!F.crm || (F.crm === 'crm' ? p.crm : !p.crm)) && p.reg >= F.min && (!F.att || (F.att === 'never' ? p.att === 0 : p.att > 0))
+  && (!F.web || p.rows.some(r => r.web.guid === F.web)) && (!F.q || lc(p.name + ' ' + p.mail + ' ' + p.comp.name).includes(lc(F.q)))); };
+const evChips = p => p.rows.map(r => `<span class="chip ${r.obecny ? 'c-ok' : r.obecny === false ? 'c-red' : 'c-mut'}" title="${esc(r.web.title)} · ${dpl(r.web.date)} · ${r.obecny ? 'obecny' : r.obecny === false ? 'nieobecny' : 'brak informacji'}">${esc(r.web.title.length > 22 ? r.web.title.slice(0, 21) + '…' : r.web.title)}</span>`).join('');
+const mkFilters = (withWeb = true) => { const F = ST.mk; const ws = DB.webinars.filter(w => DB.mkt.some(m => m.web === w)).sort((a, b) => (b.date || 0) - (a.date || 0));
+  return `<div class="filters" style="border:0;padding:0;margin-bottom:10px"><input type="search" id="mkQ" placeholder="Szukaj osoby / firmy / e-mail…" value="${esc(F.q)}" style="width:260px">
+  <div class="seg" id="mkCrm">${[['','Wszyscy'],['crm','W CRM'],['out','Spoza CRM']].map(([k, l]) => `<button data-v="${k}" class="${F.crm === k ? 'on' : ''}">${l}</button>`).join('')}</div>
+  <div class="seg" id="mkAtt">${[['','Wszyscy'],['yes','Byli min. raz'],['never','Zapisani, nigdy nie byli']].map(([k, l]) => `<button data-v="${k}" class="${F.att === k ? 'on' : ''}">${l}</button>`).join('')}</div>
+  <select id="mkMin">${[1, 2, 3, 5].map(n => `<option value="${n}" ${F.min === n ? 'selected' : ''}>${n === 1 ? 'Dowolna liczba zapisów' : 'min. ' + n + ' zapisy'}</option>`).join('')}</select>
+  ${withWeb ? `<select id="mkWeb" style="max-width:300px"><option value="">Wszystkie wydarzenia</option>${ws.map(w => `<option value="${w.guid}" ${F.web === w.guid ? 'selected' : ''}>${dpl(w.date)} · ${esc(w.title)}</option>`).join('')}</select>` : ''}
+  <button class="btn gray" id="mkReset">Wyczyść</button>${ME.staff ? `<button class="btn" id="mkMatch" style="margin-left:auto" title="Uzupełnia GUIDKontaktu w MarketingKontakty, gdy e-mail pasuje do kontaktu w Contacts">${svg('refresh')} Dopasuj kontakty po e-mailu</button>` : ''}</div>`; };
+const bindMk = () => { const F = ST.mk;
+  if ($('#mkQ')) $('#mkQ').onchange = e => { F.q = e.target.value.trim(); render(); };
+  document.querySelectorAll('#mkCrm button').forEach(b => b.onclick = () => { F.crm = b.dataset.v; render(); });
+  document.querySelectorAll('#mkAtt button').forEach(b => b.onclick = () => { F.att = b.dataset.v; render(); });
+  if ($('#mkMin')) $('#mkMin').onchange = e => { F.min = +e.target.value; render(); };
+  if ($('#mkWeb')) $('#mkWeb').onchange = e => { F.web = e.target.value; render(); };
+  if ($('#mkReset')) $('#mkReset').onclick = () => { ST.mk = { q: '', crm: '', min: 1, att: '', web: '' }; render(); };
+  if ($('#mkMatch')) $('#mkMatch').onclick = async e => { const b = e.currentTarget, todo = DB.mkt.filter(m => !m.guidK && m.mail && DB.contactByMail[m.mail]);
+    if (!todo.length) return toast('Wszystkie pasujące zapisy mają już GUIDKontaktu', 'ok');
+    b.disabled = true; let ok = 0;
+    for (const m of todo) { const c = DB.contactByMail[m.mail]; try { await patchItem('MarketingKontakty', m.id, { GUIDKontaktu: c.guid }); m.guidK = c.guid; m.contact = c; ok++; } catch (er) { console.warn(er); } }
+    toast(`Dopasowano ${ok} z ${todo.length} zapisów`, ok === todo.length ? 'ok' : 'err'); render(); };
+  document.querySelectorAll('tr').forEach(tr => { const a = tr.querySelector('[data-mweb]'); if (a) a.onclick = () => { ST.mk.web = a.dataset.mweb; go('marketing', 'm-osoby'); }; });
+};
+VIEWS['m-osoby'] = () => { const all = mktPeople(), P = mFilt(all), regs = DB.mkt.length, att = DB.mkt.filter(m => m.obecny).length;
+  const cols = [{ h: 'Uczestnik', key: 'name', f: p => `<b>${esc(p.name || '—')}</b><div style="font-size:11px;color:#9CA3AF">${esc(p.mail)}${p.contact && p.contact.stan ? ' · ' + esc(p.contact.stan) : ''}</div>` },
+    { h: 'Firma', v: p => p.comp.name, f: p => (p.comp.crm ? compLink(p.comp.name, p.comp.guid) : esc(p.comp.name)) + (p.tecs ? ' <span class="chip c-vio" title="Aktywny TECS">TECS</span>' : '') + (p.openOpps ? ` <span class="chip c-br" title="Otwarte szanse sprzedaży">${p.openOpps} opps</span>` : '') },
+    { h: 'CRM', v: p => p.crm ? 1 : 0, f: p => p.crm ? '<span class="chip c-ok">w CRM</span>' : '<span class="chip c-amb">brak</span>' },
+    { h: 'Zapisy', key: 'reg', num: 1 }, { h: 'Obecny', key: 'att', num: 1 }, { h: 'Nieobecny', key: 'abs', num: 1 }, { h: 'Frekwencja', v: p => p.att / p.reg, num: 1, f: p => attChip(p.att, p.reg) },
+    { h: 'Ostatni zapis', v: p => p.last, f: p => dpl(p.last) }, { h: 'Wydarzenia (zielone = był)', v: p => p.reg, f: evChips }];
+  return `<div class="card panel">${ptitle('users', '#5B6CDB', '#EEF0FC', 'Uczestnicy wydarzeń', 'MarketingKontakty, osoba = adres e-mail · dopasowanie do Contacts po e-mailu (GUIDKontaktu)')}
+    <div class="kpis">${kpi('Osoby', all.length, `${all.filter(p => p.crm).length} w CRM · ${all.filter(p => !p.crm).length} spoza CRM`, 'users')}${kpi('Zapisy', regs, `${pct(att, regs)} frekwencji`, 'list', '#0D9488', '#E0F5F3')}
+    ${kpi('Wracają (≥2 zapisy)', all.filter(p => p.reg > 1).length, `${all.filter(p => p.att > 1).length} było ≥2 razy`, 'refresh', '#16A34A', '#E6F6EE')}${kpi('Zapisani, ani razu nie byli', all.filter(p => !p.att).length, 'do follow-upu z nagraniem', 'alert', '#D97706', '#FEF3E2')}
+    ${kpi('Z firm z otwartą szansą / TECS', all.filter(p => p.openOpps || p.tecs).length, 'ciepłe kontakty dla handlowców', 'target', '#7C3AED', '#F1EAFE')}</div>
+    ${mkFilters()}${table('mko', cols, P, { k: 3, asc: false })}</div>`; };
+AFTER['m-osoby'] = bindMk;
+VIEWS['m-firmy'] = () => { const P = mFilt(mktPeople()), by = {};
+  P.forEach(p => { const k = p.comp.crm ? 'g:' + p.comp.guid : 't:' + lc(p.comp.name); const x = by[k] = by[k] || { name: p.comp.name, guid: p.comp.guid, crm: p.comp.crm, ppl: [], reg: 0, att: 0, ev: new Set(), openOpps: p.openOpps, tecs: p.tecs, last: null };
+    x.ppl.push(p); x.reg += p.reg; x.att += p.att; p.rows.forEach(r => { x.ev.add(r.web.guid); if (r.web.date && (!x.last || r.web.date > x.last)) x.last = r.web.date; }); });
+  const L = Object.values(by), ac = g => (DB.compBy[g] || {}).ac;
+  const cols = [{ h: 'Firma', key: 'name', f: c => (c.crm ? compLink(c.name, c.guid) : esc(c.name)) + (c.crm ? '' : ' <span class="chip c-amb" title="Brak dopasowania do firmy w CRM">spoza CRM</span>') + (c.crm && ac(c.guid) ? ' <span class="chip c-mut">Academic</span>' : '') },
+    { h: 'Osoby', v: c => c.ppl.length, num: 1 }, { h: 'Wydarzenia', v: c => c.ev.size, num: 1 }, { h: 'Zapisy', key: 'reg', num: 1 }, { h: 'Obecności', key: 'att', num: 1 }, { h: 'Frekwencja', v: c => c.att / c.reg, num: 1, f: c => attChip(c.att, c.reg) },
+    { h: 'Ostatnio', v: c => c.last, f: c => dpl(c.last) }, { h: 'Sprzedaż', v: c => c.openOpps + (c.tecs ? 100 : 0), f: c => (c.tecs ? '<span class="chip c-vio">aktywny TECS</span>' : '') + (c.openOpps ? `<span class="chip c-br">${c.openOpps} otwarte szanse</span>` : '') || '<span style="color:#9CA3AF">—</span>' },
+    { h: 'Uczestnicy', v: c => c.ppl.length, f: c => c.ppl.sort((a, b) => b.att - a.att).map(p => `<span title="${esc(p.mail)}">${esc(p.name || p.mail)} <span style="color:#9CA3AF">${p.att}/${p.reg}</span></span>`).join(', ') }];
+  return `<div class="card panel">${ptitle('FIRMY', '#0D9488', '#E0F5F3', 'Firmy na wydarzeniach', 'Firma z CRM przez kontakt (Contacts → IdentyfikatorCompanies); osoby spoza CRM grupowane po polu „Firma” z formularza zapisu')}
+    <div class="kpis">${kpi('Firmy z CRM', L.filter(c => c.crm).length, `${L.filter(c => !c.crm).length} nazw spoza CRM`, 'FIRMY', '#0D9488', '#E0F5F3')}${kpi('Firmy z ≥2 wydarzeń', L.filter(c => c.ev.size > 1).length, '', 'refresh', '#16A34A', '#E6F6EE')}
+    ${kpi('Klienci z aktywnym TECS', L.filter(c => c.tecs).length, 'szansa na upsell / szkolenia', 'TECSY', '#7C3AED', '#F1EAFE')}${kpi('Firmy z otwartą szansą', L.filter(c => c.openOpps).length, '', 'OPPSY')}</div>
+    ${mkFilters()}${table('mkf', cols, L, { k: 3, asc: false })}</div>`; };
+AFTER['m-firmy'] = bindMk;
+VIEWS['m-web'] = () => { const L = DB.webinars.map(w => { const r = DB.mkt.filter(m => m.web === w); if (!r.length) return null;
+    const first = r.filter(m => !DB.mkt.some(o => o.mail === m.mail && o.web.date && w.date && o.web.date < w.date)).length;
+    return { w, reg: r.length, att: r.filter(m => m.obecny).length, crm: r.filter(m => m.contact).length, nowi: first, ret: r.length - first, warm: r.filter(m => { const g = m.contact && m.contact.compGuid; return g && DB.sales.some(o => o.compGuid === g && o.grp === 'open'); }).length }; }).filter(Boolean);
+  const cols = [{ h: 'Data', v: x => x.w.date, f: x => dpl(x.w.date) }, { h: 'Wydarzenie', v: x => x.w.title, f: x => `<span class="lnk" data-mweb="${x.w.guid}" title="Pokaż uczestników">${esc(x.w.title)}</span>${x.w.grupa ? ` <span class="chip c-mut">${esc(x.w.grupa)}</span>` : ''}` },
+    { h: 'Zapisani', key: 'reg', num: 1 }, { h: 'Obecni', key: 'att', num: 1 }, { h: 'Frekwencja', v: x => x.att / x.reg, num: 1, f: x => attChip(x.att, x.reg) }, { h: 'W CRM', key: 'crm', num: 1, f: x => `${x.crm} <span style="color:#9CA3AF">(${pct(x.crm, x.reg)})</span>` },
+    { h: 'Nowe osoby', key: 'nowi', num: 1 }, { h: 'Powracające', key: 'ret', num: 1 }, { h: 'Z firm z otwartą szansą', key: 'warm', num: 1 }];
+  const regs = sum(L, x => x.reg), att = sum(L, x => x.att);
+  return `<div class="card panel">${ptitle('KALENDARZ', '#D97706', '#FEF3E2', 'Wydarzenia (lista Webinary)', 'Kliknij tytuł, żeby zobaczyć uczestników')}
+    <div class="kpis">${kpi('Wydarzenia', L.length, '', 'KALENDARZ', '#D97706', '#FEF3E2')}${kpi('Zapisy', regs, `średnio ${Math.round(regs / Math.max(1, L.length))} na wydarzenie`, 'list')}${kpi('Obecni', att, pct(att, regs) + ' frekwencji', 'check', '#16A34A', '#E6F6EE')}</div>
+    ${table('mkw', cols, L, { k: 0, asc: false })}</div>`; };
+AFTER['m-web'] = bindMk;
 
 /* ================= KLIENCI — wykorzystanie TECS ================= */
 function clients() {
