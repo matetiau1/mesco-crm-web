@@ -10,7 +10,7 @@ html,body{margin:0;min-height:100%}
 body{font:14px/1.45 "Segoe UI",system-ui,-apple-system,sans-serif;color:var(--tx)}
 #bg{position:fixed;inset:0;background:linear-gradient(135deg,rgb(65,147,64),rgb(40,110,255));z-index:-1}
 /* top nav */
-#topnav{height:80px;display:flex;align-items:center;background:rgba(255,255,255,.08);border-bottom:1px solid rgba(255,255,255,.18);padding:0 20px;gap:12px;position:sticky;top:0;z-index:20;backdrop-filter:blur(6px)}
+#topnav{height:80px;display:flex;align-items:center;background:linear-gradient(rgba(255,255,255,.08),rgba(255,255,255,.08)),linear-gradient(135deg,rgb(65,147,64),rgb(40,110,255)) fixed;border-bottom:1px solid rgba(255,255,255,.18);padding:0 20px;gap:12px;position:sticky;top:0;z-index:20;box-shadow:0 4px 14px rgba(0,0,0,.12)}
 .brand{width:100px;color:#fff;cursor:pointer}.brand .crm{font-size:26px;font-weight:700;line-height:1.1}.brand .logo{font-size:13px;font-weight:700;letter-spacing:.12em;opacity:.95}
 .sep{width:1px;height:44px;background:rgba(255,255,255,.2)}
 #navItems{display:flex;flex:1;overflow-x:auto;scrollbar-width:none}
