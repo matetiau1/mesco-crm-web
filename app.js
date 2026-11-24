@@ -498,7 +498,7 @@ function spData() {
     const ns = (byG[c.guid] || []).concat(byN[lc(c.name)] || []).filter(n => n.data).sort((a, b) => b.data - a.data);
     const meets = ns.filter(isMeet), lastM = meets[0] || null, last = ns[0] || null;
     return { c, tecs: c._tecs, tecsVal: sum(c._tecs, o => o.value), tecsEnd: c._tecs.length ? new Date(Math.min(...c._tecs.map(o => +o.end))) : null, opps: c._opps, oppsVal: sum(c._opps, o => o.eur),
-      lastM, lastMd: lastM ? lastM.data : null, last, n12: ns.filter(n => n.data >= od).length, meet12: meets.filter(n => n.data >= od).length, nMeets: meets.length };
+      lastM, lastMd: lastM ? lastM.data : null, last, meet12: meets.filter(n => n.data >= od).length, nMeets: meets.length, nF2F: meets.filter(n => /f2f/i.test(n.rodzaj)).length };
   });
   const bez = L.filter(x => !x.meet12);
   return { L, bez, od, who };
@@ -509,23 +509,21 @@ VIEWS.spotk = () => {
   const cols = [{ h: 'Firma', v: x => x.c.name, f: x => `${compLink(x.c.name, x.c.guid)}${x.c.ac ? ' <span class="chip c-mut">Academic</span>' : ''}<div style="font-size:11px;color:#9CA3AF">${esc(x.c.status1)}</div>` },
     { h: 'Opiekun', v: x => x.c.opiekun, f: x => esc(x.c.opiekun || '—') },
     { h: 'Ostatnie spotkanie', v: x => x.lastMd || new Date(0), f: x => x.lastM ? `${dpl(x.lastMd)} <span class="chip c-red">${ago(x.lastMd)} dni temu</span><div style="font-size:11px;color:#9CA3AF">${esc(x.lastM.rodzaj)}${x.lastM.osoba ? ' · ' + esc(x.lastM.osoba) : ''}</div>` : '<span class="chip c-red">nigdy (brak w CRM)</span>' },
-    { h: 'Ostatni jakikolwiek kontakt', v: x => x.last ? x.last.data : new Date(0), f: x => x.last ? `${dpl(x.last.data)} <span style="color:#9CA3AF">(${ago(x.last.data)} dni)</span><div style="font-size:11px;color:#9CA3AF">${esc(x.last.rodzaj || '—')}</div>` : '<span class="chip c-amb">brak notatek</span>' },
-    { h: `Notatki ${S.dni === 365 ? '12 mies.' : S.dni + ' dni'}`, key: 'n12', num: 1 },
+    { h: 'Spotkania łącznie', key: 'nMeets', num: 1, f: x => x.nMeets ? `${x.nMeets} <span style="color:#9CA3AF">(${x.nF2F} F2F · ${x.nMeets - x.nF2F} online)</span>` : '0' },
     { h: 'Aktywny TECS', key: 'tecsVal', num: 1, f: x => x.tecs.length ? `${eur(x.tecsVal)}<div style="font-size:11px;color:#9CA3AF">do ${dpl(x.tecsEnd)}</div>` : '<span style="color:#9CA3AF">—</span>' },
     { h: 'Otwarte szanse', key: 'oppsVal', num: 1, f: x => x.opps.length ? `${eur(x.oppsVal)} <span style="color:#9CA3AF">(${x.opps.length})</span>` : '<span style="color:#9CA3AF">—</span>' },
     { h: '', f: x => ME.staff ? `<button class="btn" data-spn="${x.c.id}" title="Dodaj notatkę / umów spotkanie">${svg('note')}</button>` : '' }];
   if (Q.who) cols.splice(1, 1);
   const segs = [['klient', 'Status: Klient'], ['tecs', 'Z aktywnym TECS'], ['all', 'Wszyscy poza Prospect']];
-  return `<div class="card panel">${ptitle('users', '#DC2626', '#FEE2E2', 'Klienci bez spotkania online ani F2F', `Brak notatki „spotkanie online” lub „spotkanie F2F” od ${dpl(Q.od)} · powiązanie Notes.IdentyfikatorCompanies = CompaniesGUID`,
+  return `<div class="card panel">${ptitle('users', '#DC2626', '#FEE2E2', 'Klienci bez spotkania online ani F2F', `Liczą się wyłącznie notatki „spotkanie online” i „spotkanie F2F” (telefony, maile, wysyłki itp. pomijane) · brak spotkania od ${dpl(Q.od)}`,
     `<div class="seg" id="spSeg">${segs.map(([k, l]) => `<button data-v="${k}" class="${S.seg === k ? 'on' : ''}">${l}</button>`).join('')}</div>
      <select id="spDni">${[[180, '6 mies.'], [365, '12 mies.'], [730, '24 mies.']].map(([d, l]) => `<option value="${d}" ${S.dni === d ? 'selected' : ''}>${l}</option>`).join('')}</select>
      <select id="spWho"><option value="me" ${S.who === 'me' ? 'selected' : ''}>Moi klienci (${esc(ME.name)})</option><option value="" ${S.who === '' ? 'selected' : ''}>Wszyscy opiekunowie</option>${[...new Set(DB.comp.map(c => c.opiekun).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'pl')).filter(o => o !== ME.name).map(o => `<option ${S.who === o ? 'selected' : ''}>${esc(o)}</option>`).join('')}</select>`)}
     <div class="kpis">${kpi('Klienci w zestawieniu', Q.L.length, `${Q.L.length - B.length} ze spotkaniem w okresie`, 'FIRMY', '#0D9488', '#E0F5F3')}
       ${kpi('Bez spotkania', B.length, Q.L.length ? Math.round(B.length / Q.L.length * 100) + '% klientów' : '', 'alert', '#DC2626', '#FEE2E2')}
       ${kpi('…w tym z aktywnym TECS', B.filter(x => x.tecs.length).length, eur(sum(B, x => x.tecsVal)) + ' TECS bez spotkania', 'TECSY', '#7C3AED', '#F1EAFE')}
-      ${kpi('Nigdy nie było spotkania', B.filter(x => !x.nMeets).length, 'brak jakiegokolwiek spotkania w CRM', 'x', '#D97706', '#FEF3E2')}
-      ${kpi('Bez żadnej notatki w okresie', B.filter(x => !x.n12).length, 'zero kontaktu', 'note', '#DC2626', '#FEE2E2')}</div>
-    ${table('spt', cols, B, { k: Q.who ? 4 : 5, asc: false }, { empty: 'Każdy klient miał spotkanie w tym okresie 🎉' })}</div>`;
+      ${kpi('Nigdy nie było spotkania', B.filter(x => !x.nMeets).length, 'brak notatki spotkanie online / F2F w CRM', 'x', '#D97706', '#FEF3E2')}</div>
+    ${table('spt', cols, B, { k: Q.who ? 3 : 4, asc: false }, { empty: 'Każdy klient miał spotkanie w tym okresie 🎉' })}</div>`;
 };
 AFTER.spotk = () => {
   document.querySelectorAll('#spSeg button').forEach(b => b.onclick = () => { ST.sp.seg = b.dataset.v; render(); });
