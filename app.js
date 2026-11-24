@@ -161,7 +161,7 @@ function build(R, users) {
   DB.rodzaje = R.activities.map(a => ({ id: a.id, name: a.Notes_types })).filter(a => a.name);
   // firmy
   DB.comp = R.Companies.map(c => ({
-    id: c.id, guid: lc(c.CompaniesGUID), name: (c.Nazwa || c.Pe_x0142_nanazwa || '').trim() || '(bez nazwy)',
+    id: c.id, guid: lc(c.CompaniesGUID), guidRaw: c.CompaniesGUID || '', name: (c.Nazwa || c.Pe_x0142_nanazwa || '').trim() || '(bez nazwy)',
     status: c.Status || '', status1: c.Status1 || '', ac: [].concat(c.Bran_x017c_a || []).includes('Academic'), creator: c.Creator || '',
     tecsh: num(c.TECSh) || 0, presh: num(c.PreSalesh) || 0, wartTECS: num(c.WartoscTECS) || 0, marza: num(c.MarzaTECS) || 0,
     szkA: num(c.SzkoleniaGratis) || 0, szkB: num(c.SzkolenieGratis) || 0, opiekun: uname(c.Utworzoneprzez_x002f_OpiekunLookupId) || c.Creator || '',
@@ -271,13 +271,13 @@ function build(R, users) {
 
 /* ================= stan + routing ================= */
 const ST = { mod: 'dashboard', tab: 'todo', sort: {}, g: { owner: '', comp: '', q: '', seg: 'all' },
-  todo: { plus7: false, desc: false }, plan: { who: 'me', ciche: 14 }, akt: { od: new Date(TODAY.getFullYear(), TODAY.getMonth(), 1), do: TODAY, h: '', r: '', f: '' },
+  todo: { plus7: false, desc: false }, plan: { who: 'me', ciche: 14 }, sp: { who: 'me', seg: 'klient', dni: 365 }, akt: { od: new Date(TODAY.getFullYear(), TODAY.getMonth(), 1), do: TODAY, h: '', r: '', f: '' },
   rs: { tryb: 'szanse', od: null, do: null, desc: true, h: '', f: '', r: '', t: '', s: '', to: '', te: '', tf: '', pf: '', pl: '', onlyTP: false },
   hg: { pre: false, all: false, st: '', op: '' }, mk: { q: '', crm: '', min: 1, att: '', web: '' }, df: { all: false, op: '', st: '', f: '', lim: 60 }, sstage: '' };
 try { const s = JSON.parse(localStorage.getItem('mescocrm') || '{}'); if (s.g) Object.assign(ST.g, s.g); } catch (e) {}
 const save = () => { try { localStorage.setItem('mescocrm', JSON.stringify({ g: ST.g })); } catch (e) {} };
 const MODS = {
-  dashboard: { name: 'Dashboard', icon: 'DASHBOARD', tabs: [['todo','To-Do','clock'],['plan','Plan na tydzień','KALENDARZ'],['akt','Aktywności','activity'],['sprz','Raport sprzedaży','OPPSY'],['godz','Godziny TECS / PreSales','bars'],['firmy','Bilans firm','FIRMY']] },
+  dashboard: { name: 'Dashboard', icon: 'DASHBOARD', tabs: [['todo','To-Do','clock'],['plan','Plan na tydzień','KALENDARZ'],['spotk','Bez spotkań 12 mies.','users'],['akt','Aktywności','activity'],['sprz','Raport sprzedaży','OPPSY'],['godz','Godziny TECS / PreSales','bars'],['firmy','Bilans firm','FIRMY']] },
   tecs: { name: 'TECS — odnowienia', icon: 'TECSY', g: true, tabs: [['przeglad','Przegląd','DASHBOARD'],['otwarte','Do zamknięcia','clock'],['zamkniete','Zamknięte','check'],['ceny','Kontrola cen','euro'],['tp','TP','tag'],['bez-oferty','Bez oferty','alert'],['bez-notatek','Bez notatek','note']] },
   oppsy: { name: 'Szanse sprzedaży', icon: 'OPPSY', g: true, tabs: [['s-przeglad','Przegląd','DASHBOARD'],['s-otwarte','W toku','clock'],['s-zamkniete','Wygrane / przegrane','check'],['s-alerty','Alerty','alert']] },
   firmy: { name: 'Klienci — wykorzystanie TECS', icon: 'FIRMY', g: true, noQ: true, tabs: [['klienci','Aktywne TECS i support','SUPPORTY']] },
@@ -381,7 +381,7 @@ function render() {
 }
 function tabCounts() {
   const c = {};
-  if (ST.mod === 'dashboard') { const t = todoList(); c.todo = t.length; c['todo!'] = t.some(n => n.fu < TODAY); const P = planData(); c.plan = P.total; c['plan!'] = P.pilne > 0; }
+  if (ST.mod === 'dashboard') { const t = todoList(); c.todo = t.length; c['todo!'] = t.some(n => n.fu < TODAY); const P = planData(); c.plan = P.total; c['plan!'] = P.pilne > 0; const Q = spData(); c.spotk = Q.bez.length; c['spotk!'] = Q.bez.some(x => x.tecs); }
   if (ST.mod === 'tecs') { const L = gf(DB.tecs).filter(o => !['demo','tp'].includes(o.grp)); c.otwarte = L.filter(o => o.grp === 'open').length; c['bez-oferty'] = L.filter(o => o.grp === 'open' && !o.nOffers).length; c['bez-oferty!'] = 1;
     c['bez-notatek'] = L.filter(o => o.grp === 'open' && !o.nNotes && o.days != null && o.days <= 90).length; c['bez-notatek!'] = 1; c.ceny = L.reduce((a, o) => a + o.priceIssues.filter(p => p.diff != null).length, 0); c['ceny!'] = 1; c.tp = gf(DB.tecs).filter(o => o.grp === 'tp').length; }
   if (ST.mod === 'oppsy') { const S = gf(DB.sales); c['s-otwarte'] = S.filter(o => o.grp === 'open').length; c['s-alerty'] = S.filter(o => o.grp === 'open' && o.flags.some(f => f[1] === 'c-red')).length; c['s-alerty!'] = 1; }
@@ -483,6 +483,57 @@ AFTER.plan = () => {
     if (k === 'opp') { const x = DB.sales.find(o => o.id === +id); noteModal(oppNoteSrc(x)); }
     else { const o = DB.tecs.find(t => t.id === +id); noteModal({ firma: o.comp, guid: o.compGuid, osoba: '', tel: '', contact: '', etap: o.stage, etapP: '', opps: o.guid, oppName: o.name || 'TECS', raw: { IdentyfikatorCompanies: o.raw.IdentyfikatorCompanies || '', Opps_ID: o.raw.TECSGUID || '' } }); } });
 };
+
+/* --- Klienci bez spotkania online / F2F w ostatnim roku --- */
+const isMeet = n => /^spotkanie/i.test(n.rodzaj || '');
+function spData() {
+  const S = ST.sp, who = S.who === 'me' ? ME.name : S.who, od = addDays(TODAY, -S.dni);
+  const byG = {}, byN = {}; DB.notes.forEach(n => { if (n.guid) (byG[n.guid] = byG[n.guid] || []).push(n); else if (n.firma) (byN[lc(n.firma)] = byN[lc(n.firma)] || []).push(n); });
+  const L = DB.comp.filter(c => {
+    const tecs = DB.tecs.filter(o => o.compGuid === c.guid && o.grp !== 'demo' && o.stage !== 'Rezygnacja z TECS' && o.start && o.end && o.start <= TODAY && o.end >= TODAY);
+    c._tecs = tecs; c._opps = DB.sales.filter(o => o.compGuid === c.guid && o.grp === 'open');
+    const segOk = S.seg === 'klient' ? c.status1 === 'Klient' : S.seg === 'tecs' ? tecs.length > 0 : c.status1 !== 'Prospect';
+    return segOk && (!who || c.opiekun === who);
+  }).map(c => {
+    const ns = (byG[c.guid] || []).concat(byN[lc(c.name)] || []).filter(n => n.data).sort((a, b) => b.data - a.data);
+    const meets = ns.filter(isMeet), lastM = meets[0] || null, last = ns[0] || null;
+    return { c, tecs: c._tecs, tecsVal: sum(c._tecs, o => o.value), tecsEnd: c._tecs.length ? new Date(Math.min(...c._tecs.map(o => +o.end))) : null, opps: c._opps, oppsVal: sum(c._opps, o => o.eur),
+      lastM, lastMd: lastM ? lastM.data : null, last, n12: ns.filter(n => n.data >= od).length, meet12: meets.filter(n => n.data >= od).length, nMeets: meets.length };
+  });
+  const bez = L.filter(x => !x.meet12);
+  return { L, bez, od, who };
+}
+VIEWS.spotk = () => {
+  const Q = spData(), S = ST.sp, B = Q.bez;
+  const ago = d => d ? Math.round((TODAY - d) / 864e5) : null;
+  const cols = [{ h: 'Firma', v: x => x.c.name, f: x => `${compLink(x.c.name, x.c.guid)}${x.c.ac ? ' <span class="chip c-mut">Academic</span>' : ''}<div style="font-size:11px;color:#9CA3AF">${esc(x.c.status1)}</div>` },
+    { h: 'Opiekun', v: x => x.c.opiekun, f: x => esc(x.c.opiekun || '—') },
+    { h: 'Ostatnie spotkanie', v: x => x.lastMd || new Date(0), f: x => x.lastM ? `${dpl(x.lastMd)} <span class="chip c-red">${ago(x.lastMd)} dni temu</span><div style="font-size:11px;color:#9CA3AF">${esc(x.lastM.rodzaj)}${x.lastM.osoba ? ' · ' + esc(x.lastM.osoba) : ''}</div>` : '<span class="chip c-red">nigdy (brak w CRM)</span>' },
+    { h: 'Ostatni jakikolwiek kontakt', v: x => x.last ? x.last.data : new Date(0), f: x => x.last ? `${dpl(x.last.data)} <span style="color:#9CA3AF">(${ago(x.last.data)} dni)</span><div style="font-size:11px;color:#9CA3AF">${esc(x.last.rodzaj || '—')}</div>` : '<span class="chip c-amb">brak notatek</span>' },
+    { h: `Notatki ${S.dni === 365 ? '12 mies.' : S.dni + ' dni'}`, key: 'n12', num: 1 },
+    { h: 'Aktywny TECS', key: 'tecsVal', num: 1, f: x => x.tecs.length ? `${eur(x.tecsVal)}<div style="font-size:11px;color:#9CA3AF">do ${dpl(x.tecsEnd)}</div>` : '<span style="color:#9CA3AF">—</span>' },
+    { h: 'Otwarte szanse', key: 'oppsVal', num: 1, f: x => x.opps.length ? `${eur(x.oppsVal)} <span style="color:#9CA3AF">(${x.opps.length})</span>` : '<span style="color:#9CA3AF">—</span>' },
+    { h: '', f: x => ME.staff ? `<button class="btn" data-spn="${x.c.id}" title="Dodaj notatkę / umów spotkanie">${svg('note')}</button>` : '' }];
+  if (Q.who) cols.splice(1, 1);
+  const segs = [['klient', 'Status: Klient'], ['tecs', 'Z aktywnym TECS'], ['all', 'Wszyscy poza Prospect']];
+  return `<div class="card panel">${ptitle('users', '#DC2626', '#FEE2E2', 'Klienci bez spotkania online ani F2F', `Brak notatki „spotkanie online” lub „spotkanie F2F” od ${dpl(Q.od)} · powiązanie Notes.IdentyfikatorCompanies = CompaniesGUID`,
+    `<div class="seg" id="spSeg">${segs.map(([k, l]) => `<button data-v="${k}" class="${S.seg === k ? 'on' : ''}">${l}</button>`).join('')}</div>
+     <select id="spDni">${[[180, '6 mies.'], [365, '12 mies.'], [730, '24 mies.']].map(([d, l]) => `<option value="${d}" ${S.dni === d ? 'selected' : ''}>${l}</option>`).join('')}</select>
+     <select id="spWho"><option value="me" ${S.who === 'me' ? 'selected' : ''}>Moi klienci (${esc(ME.name)})</option><option value="" ${S.who === '' ? 'selected' : ''}>Wszyscy opiekunowie</option>${[...new Set(DB.comp.map(c => c.opiekun).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'pl')).filter(o => o !== ME.name).map(o => `<option ${S.who === o ? 'selected' : ''}>${esc(o)}</option>`).join('')}</select>`)}
+    <div class="kpis">${kpi('Klienci w zestawieniu', Q.L.length, `${Q.L.length - B.length} ze spotkaniem w okresie`, 'FIRMY', '#0D9488', '#E0F5F3')}
+      ${kpi('Bez spotkania', B.length, Q.L.length ? Math.round(B.length / Q.L.length * 100) + '% klientów' : '', 'alert', '#DC2626', '#FEE2E2')}
+      ${kpi('…w tym z aktywnym TECS', B.filter(x => x.tecs.length).length, eur(sum(B, x => x.tecsVal)) + ' TECS bez spotkania', 'TECSY', '#7C3AED', '#F1EAFE')}
+      ${kpi('Nigdy nie było spotkania', B.filter(x => !x.nMeets).length, 'brak jakiegokolwiek spotkania w CRM', 'x', '#D97706', '#FEF3E2')}
+      ${kpi('Bez żadnej notatki w okresie', B.filter(x => !x.n12).length, 'zero kontaktu', 'note', '#DC2626', '#FEE2E2')}</div>
+    ${table('spt', cols, B, { k: Q.who ? 4 : 5, asc: false }, { empty: 'Każdy klient miał spotkanie w tym okresie 🎉' })}</div>`;
+};
+AFTER.spotk = () => {
+  document.querySelectorAll('#spSeg button').forEach(b => b.onclick = () => { ST.sp.seg = b.dataset.v; render(); });
+  $('#spDni').onchange = e => { ST.sp.dni = +e.target.value; render(); };
+  $('#spWho').onchange = e => { ST.sp.who = e.target.value; render(); };
+  document.querySelectorAll('[data-spn]').forEach(b => b.onclick = () => { const c = DB.comp.find(x => x.id === +b.dataset.spn);
+    noteModal({ firma: c.name, guid: c.guid, osoba: '', tel: '', contact: '', etap: '', etapP: '', opps: '', oppName: '', raw: { IdentyfikatorCompanies: c.guidRaw || '', Opps_ID: '' } }); });
+};
 /* --- modal notatki po follow-upie --- */
 function noteModal(src) {
   const st = { rodzaj: '', dni: 0 };
@@ -491,7 +542,7 @@ function noteModal(src) {
   const draw = () => {
     const quick = [['Telefon', 'telefon'], ['Oferta', 'oferta'], ['Demo', 'demo']];
     m.innerHTML = `<div class="mbox"><div class="mh"><div class="ic" style="width:36px;height:36px;border-radius:8px;background:#FEF3E2;display:flex;align-items:center;justify-content:center">${svg('note', '#D97706')}</div>
-      <div style="flex:1"><div style="font-weight:600;font-size:15px">${esc(src.firma || 'Notatka')}</div><div class="sub" style="font-size:11.5px;color:#6B7280">${src.id ? 'Nowa notatka po follow-upie' : 'Nowa notatka do szansy' + (src.oppName ? ' ' + esc(src.oppName) : '')} · ${esc(src.osoba || '—')}${src.tel ? ' · ' + esc(src.tel) : ''}</div></div>
+      <div style="flex:1"><div style="font-weight:600;font-size:15px">${esc(src.firma || 'Notatka')}</div><div class="sub" style="font-size:11.5px;color:#6B7280">${src.id ? 'Nowa notatka po follow-upie' : (src.oppName ? 'Nowa notatka do szansy ' + esc(src.oppName) : 'Nowa notatka')} · ${esc(src.osoba || '—')}${src.tel ? ' · ' + esc(src.tel) : ''}</div></div>
       <button class="btn gray" id="mClose" title="Zamknij">${svg('x')}</button></div>
       <div class="fgrid"><label>Data wydarzenia<input type="date" id="mData" value="${ds(TODAY)}"></label><label>Osoba<input type="text" id="mOsoba" value="${esc(src.osoba)}"></label>
       <label>Rodzaj kontaktu *<select id="mRodz"><option value="">Wybierz rodzaj</option>${rodz.map(r => `<option value="${r.id}" ${lc(r.name).startsWith(st.rodzaj) && st.rodzaj ? 'selected' : ''}>${esc(r.name)}</option>`).join('')}</select></label></div>
