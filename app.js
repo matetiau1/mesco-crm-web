@@ -129,7 +129,7 @@ const F = {
   Opps_TECS: ['Numer_klienta','Nazwaszansysprzeda_x017c_y_TECS','Pocz_x0105_tek_TECS','Koniec_TECS','OpiekunLookupId','Warto_x015b__x0107_','FirmaID','Etap1','TP','IdentyfikatorCompanies','TECSGUID','Demo','DemoOffice','DemoAdmLookupId','Data_Follow_Up','TECScreator'],
   Oferty_TECS: ['ProducID','Cena_TECS','Liczba_licencji','SUMA','Rabat','IdentyfikatorTECS','TP','TPValue','Demo','FirmaIDofertaTECS','Pocz_x0105_tek_TECS','Koniec_TECS'],
   Cennik_CRM: ['Title','field_2','field_3'],
-  Support: ['Data','Czas','IdentyfikatorCompanies','StatusTicket','MailSubject'],
+  Support: ['Data','Czas','IdentyfikatorCompanies','StatusTicket','MailSubject','Dla_sprzeda_x017c_y'],
   UczestnicySzkolen: ['GUIDFirmy','DataSzkolenia','WartoscDarmowegoSzkolenia'],
   Szkolenia: ['GUIDFirmy','DataSzkolenia','WartoscDarmowegoSzkolenia'],
   KursyWalut: ['Waluta','Kurs'],
@@ -253,13 +253,14 @@ function build(R, users) {
     const x = DB.sup[g] = DB.sup[g] || { n: 0, n90: 0, n365: 0, h365: 0, last: null, m: Array(12).fill(0), open: 0, subj: [] };
     if (['W toku','Oczekuje na odpowiedź','Przydzielony'].includes(s.StatusTicket)) x.open++;
     if (s.MailSubject) x.subj.push([d, s.MailSubject]);
+    if (s.Dla_sprzeda_x017c_y && (now - d) / 864e5 <= 365) { x.pre365 = (x.pre365 || 0) + 1; if (!x.preLast || d > x.preLast) x.preLast = d; }
     const age = (now - d) / 864e5; x.n++; if (age <= 90) x.n90++; if (age <= 365) { x.n365++; x.h365 += num(s.Czas) || 0; }
     if (!x.last || d > x.last) x.last = d; const mi = 11 - (nowM - mk(d)); if (mi >= 0 && mi < 12) x.m[mi]++; });
   DB.supMonths = Array.from({ length: 12 }, (_, i) => { const d = new Date(now.getFullYear(), now.getMonth() - 11 + i, 1); return ['sty','lut','mar','kwi','maj','cze','lip','sie','wrz','paź','lis','gru'][d.getMonth()] + ' ' + String(d.getFullYear()).slice(2); });
   // darmowe szkolenia (12 mies.) na firmę, PLN
   DB.szk = {}; const yAgo = addDays(TODAY, -365);
   [['A', R.UczestnicySzkolen], ['B', R.Szkolenia]].forEach(([k, arr]) => arr.forEach(s => { const g = lc(s.GUIDFirmy), d = toD(s.DataSzkolenia); if (!g || !d || d > TODAY || d < yAgo) return;
-    const x = DB.szk[g] = DB.szk[g] || { A: 0, B: 0 }; x[k] += num(s.WartoscDarmowegoSzkolenia) || 0; }));
+    const x = DB.szk[g] = DB.szk[g] || { A: 0, B: 0, n: 0, last: null }; x[k] += num(s.WartoscDarmowegoSzkolenia) || 0; x.n++; if (!x.last || d > x.last) x.last = d; }));
   // listy pomocnicze
   DB.owners = [...new Set(DB.tecs.map(o => o.owner).concat(DB.sales.map(o => o.owner)).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'pl'));
   // marketing: kontakty CRM po e-mailu, webinary, zapisy
@@ -422,9 +423,65 @@ VIEWS.todo = () => {
   return `<div class="card panel">${ptitle('clock', '#D97706', '#FEF3E2', 'Twoje follow-upy', `${L.length} do zrobienia`, `<span class="chip c-red">Zaległe: ${zal}</span><span class="chip c-amb">Na dziś: ${dzis}</span>
     <div class="seg" id="tdSeg"><button class="${!ST.todo.plus7 ? 'on' : ''}" data-v="0">Do dziś</button><button class="${ST.todo.plus7 ? 'on' : ''}" data-v="1">+ najbliższe 7 dni</button></div>
     <button class="btn" id="tdSort">${svg('sort')} ${ST.todo.desc ? 'Najnowsze najpierw' : 'Najstarsze najpierw'}</button>`)}
-    ${L.length ? `<div class="fu-grid">${L.map(card).join('')}</div>` : `<div class="empty">Brak zaległych follow-upów – wszystko zrobione 🎉</div>`}</div>`;
+    ${L.length ? `<div class="fu-grid">${L.map(card).join('')}</div>` : `<div class="empty">Brak zaległych follow-upów – wszystko zrobione 🎉</div>`}</div>
+  ${todoExtra()}`;
 };
+/* --- To-Do: TECS ≤90 dni, szanse bez ruchu >90 dni, uśpieni klienci --- */
+function todoX() {
+  const who = ME.name, od = addDays(TODAY, -365), mineO = o => o.owner === who;
+  const tecs = DB.tecs.filter(o => o.grp === 'open' && mineO(o) && o.end && o.days <= 90).sort((a, b) => a.days - b.days);
+  const openS = DB.sales.filter(o => o.grp === 'open' && mineO(o));
+  openS.forEach(o => { const d = [o.lastNote, DB.lastByComp[o.compGuid]].filter(Boolean).sort((a, b) => b - a)[0] || o.openD; o.mv = d ? Math.round((TODAY - d) / 864e5) : null; });
+  const idle = openS.filter(o => o.mv != null && o.mv > 90);
+  const meets = (c) => { const seen = new Set(); return (DB.cNotes[c.guid] || []).concat(DB.cNotes['n:' + lc(c.name)] || []).filter(n => !seen.has(n.id) && seen.add(n.id) && n.data && n.data >= od && isMeet(n)); };
+  const offers = g => DB.sales.filter(o => o.compGuid === g && o.nOffers && ((o.openD && o.openD >= od) || o.grp === 'open'));
+  const act = c => { const s = DB.sup[c.guid] || {}, z = DB.szk[c.guid] || {}, m = meets(c);
+    return { sup: s.n365 || 0, supLast: s.last, szk: z.n || 0, szkLast: z.last, of: offers(c.guid).length, meet: m.length, meetLast: m.map(n => n.data).sort((a, b) => b - a)[0] || null, pre: s.pre365 || 0, preLast: s.preLast,
+      opps: DB.sales.filter(o => o.compGuid === c.guid && o.grp === 'open') }; };
+  const activeT = g => DB.tecs.filter(o => o.compGuid === g && o.grp !== 'demo' && o.stage !== 'Rezygnacja z TECS' && o.start && o.end && o.start <= TODAY && o.end >= TODAY);
+  const myComp = DB.comp.filter(c => c.guid && !/^mesco\b/i.test(c.name) && (c.opiekun === who || DB.tecs.some(o => o.compGuid === c.guid && o.owner === who && o.end && o.end >= TODAY)));
+  const withT = [], noT = [];
+  myComp.forEach(c => { const T = activeT(c.guid); const a = act(c);
+    if (T.length) { a.T = T; a.val = sum(T, o => o.value); a.end = new Date(Math.min(...T.map(o => +o.end))); a.miss = ['sup', 'szk', 'of', 'meet'].filter(k => !a[k]).length; withT.push({ c, a }); }
+    else if (c.status1 === 'Klient') { a.miss = (a.opps.length ? 0 : 1) + (a.meet ? 0 : 1) + (a.pre ? 0 : 1); noT.push({ c, a }); } });
+  return { who, tecs, idle, openN: openS.length, withT, noT };
+}
+const lastD = (n, d) => n ? `<b>${n}</b><div style="font-size:11px;color:#9CA3AF">${d ? dpl(d) : ''}</div>` : '<span class="chip c-red">brak</span>';
+function todoExtra() {
+  const X = todoX(), S = ST.todo, tryb = S.tryb || 'all';
+  const lastC = d => d ? `${dpl(d)} <span style="color:#9CA3AF">(${Math.round((TODAY - d) / 864e5)} dni temu)</span>` : '<span class="chip c-amb">brak</span>';
+  const tcC = [{ h: 'TECS', key: 'comp', f: o => `${compLink(o.comp, o.compGuid)}<div style="font-size:11px;color:#9CA3AF">${tecsLink(o)} ${esc(o.name)}</div>` }, { h: 'Etap', key: 'stage', f: o => stageChip(o.stage) },
+    { h: 'Koniec TECS', key: 'days', f: o => dueCell(o.end, o.days, o.days >= 0 && o.days <= 7) }, { h: 'Wartość', key: 'value', num: 1, f: o => eur(o.value) }, { h: 'Oferty', key: 'nOffers', num: 1 },
+    { h: 'Ostatni kontakt', v: o => o.lastNote, f: o => lastC(o.lastNote) }, { h: 'Co zrobić', v: o => o.flags.length, f: o => chips(o.flags) || '<span style="color:#9CA3AF">wyślij / domknij odnowienie</span>' }, { h: '', f: o => actBtns('tecs', o.id) }];
+  const idC = [{ h: 'Szansa', key: 'name', f: o => `${oppLink(o)}<div style="font-size:11px;color:#9CA3AF">${esc(o.comp)}</div>` }, { h: 'Etap', v: o => STAGES.indexOf(o.stage), f: o => `<span class="chip c-br">${esc(o.stage || '—')}</span>` },
+    { h: 'Wartość', key: 'eur', num: 1, f: o => eur(o.eur) }, { h: 'Bez ruchu', key: 'mv', num: 1, f: o => `<span class="chip c-red">${o.mv} dni</span>` }, { h: 'Zamknięcie', key: 'days', f: o => o.close ? dueCell(o.close, o.days, false) : '<span class="chip c-amb">brak daty</span>' },
+    { h: 'TechPool', v: o => tpChip(o, true), f: o => tpChip(o) }, { h: '', f: o => actBtns('opp', o.id) }];
+  const wT = tryb === 'all' ? X.withT.filter(x => x.a.miss === 4) : X.withT.filter(x => x.a.miss > 0);
+  const nT = tryb === 'all' ? X.noT.filter(x => x.a.miss === 3) : X.noT.filter(x => x.a.miss > 0);
+  const firmaC = { h: 'Klient', v: x => x.c.name, f: x => `${compLink(x.c.name, x.c.guid)}${x.c.ac ? ' <span class="chip c-mut">Academic</span>' : ''}` };
+  const wC = [firmaC, { h: 'TECS', v: x => x.a.val, num: 1, f: x => `${vK(x.a.val)}<div style="font-size:11px;color:#9CA3AF">koniec ${dpl(x.a.end)}</div>` },
+    { h: 'Support', v: x => x.a.sup, num: 1, f: x => lastD(x.a.sup, x.a.supLast) }, { h: 'Szkolenia', v: x => x.a.szk, num: 1, f: x => lastD(x.a.szk, x.a.szkLast) },
+    { h: 'Oferty (szanse)', v: x => x.a.of, num: 1, f: x => x.a.of ? `<b>${x.a.of}</b>` : '<span class="chip c-red">brak</span>' }, { h: 'Spotkania', v: x => x.a.meet, num: 1, f: x => lastD(x.a.meet, x.a.meetLast) },
+    { h: 'Braki', v: x => x.a.miss, num: 1, f: x => `<span class="chip ${x.a.miss >= 3 ? 'c-red' : 'c-amb'}">${x.a.miss} z 4</span>` }, { h: '', f: x => ME.staff ? `<button class="btn" data-tdc="${x.c.id}" title="Dodaj notatkę">${svg('note')}</button>` : '' }];
+  const nC = [firmaC, { h: 'Otwarte szanse', v: x => x.a.opps.length, num: 1, f: x => x.a.opps.length ? `<b>${x.a.opps.length}</b> · ${vK(sum(x.a.opps, o => o.eur))}` : '<span class="chip c-red">brak</span>' },
+    { h: 'Spotkania', v: x => x.a.meet, num: 1, f: x => lastD(x.a.meet, x.a.meetLast) }, { h: 'PreSales (Support)', v: x => x.a.pre, num: 1, f: x => lastD(x.a.pre, x.a.preLast) },
+    { h: 'Support', v: x => x.a.sup, num: 1, f: x => x.a.sup ? x.a.sup : '<span style="color:#9CA3AF">0</span>' },
+    { h: 'Ostatni kontakt', v: x => DB.lastByComp[x.c.guid] || DB.lastByComp['n:' + lc(x.c.name)] || null, f: x => lastC(DB.lastByComp[x.c.guid] || DB.lastByComp['n:' + lc(x.c.name)] || null) },
+    { h: 'Braki', v: x => x.a.miss, num: 1, f: x => `<span class="chip ${x.a.miss >= 3 ? 'c-red' : 'c-amb'}">${x.a.miss} z 3</span>` }, { h: '', f: x => ME.staff ? `<button class="btn" data-tdc="${x.c.id}" title="Dodaj notatkę">${svg('note')}</button>` : '' }];
+  const sec = (icon, c, bg, t, sub, body, right = '') => `<div class="card panel">${ptitle(icon, c, bg, t, sub, right)}${body}</div>`;
+  const seg = `<div class="seg" id="tdTryb"><button data-v="all" class="${tryb === 'all' ? 'on' : ''}">Brak wszystkiego</button><button data-v="any" class="${tryb === 'any' ? 'on' : ''}">Brak czegokolwiek</button></div>`;
+  return `${sec('TECSY', '#0D9488', '#E0F5F3', 'TECSy kończące się w ciągu 90 dni', `${X.tecs.length} pozycji · ${eur(sum(X.tecs, o => o.value))} · ${X.tecs.filter(o => o.days < 0).length} po terminie (jak w Planie na tydzień)`, table('td2', tcC, X.tecs, { k: 2, asc: true }, { empty: 'Brak TECS kończących się w ciągu 90 dni' }))}
+  ${sec('OPPSY', '#DC2626', '#FEE2E2', 'Szanse bez ruchu ponad 90 dni', `${X.idle.length} z ${X.openN} otwartych · ${eur(sum(X.idle, o => o.eur))} · ruch = notatka do szansy lub firmy (gdy brak — data otwarcia)`, table('td3', idC, X.idle, { k: 3, asc: false }, { empty: 'Każda szansa miała ruch w ostatnich 90 dniach' }))}
+  ${sec('users', '#7C3AED', '#F1EAFE', 'Klienci z TECS bez aktywności (12 mies.)', `${wT.length} z ${X.withT.length} klientów z aktywnym TECS · sprawdzane: support, szkolenia, oferty w szansach, spotkania online / F2F`, table('td4', wC, wT, { k: 1, asc: false }, { empty: 'Każdy klient z TECS ma aktywność w tym okresie' }), seg)}
+  ${sec('FIRMY', '#D97706', '#FEF3E2', 'Klienci bez TECS bez aktywności (12 mies.)', `${nT.length} z ${X.noT.length} klientów (Status: Klient) bez aktywnego TECS · sprawdzane: otwarte szanse, spotkania online / F2F, PreSales w Support (pole „Dla sprzedaży”)`, table('td5', nC, nT, { k: 5, asc: true }, { empty: 'Brak klientów bez TECS w tym zestawieniu' }))}`;
+}
 AFTER.todo = () => {
+  document.querySelectorAll('#tdTryb button').forEach(b => b.onclick = () => { ST.todo.tryb = b.dataset.v; render(); });
+  document.querySelectorAll('[data-pnote]').forEach(b => b.onclick = () => { const [k, id] = b.dataset.pnote.split('|');
+    if (k === 'opp') { const x = DB.sales.find(o => o.id === +id); noteModal(oppNoteSrc(x)); }
+    else { const o = DB.tecs.find(t => t.id === +id); noteModal({ firma: o.comp, guid: o.compGuid, osoba: '', tel: '', contact: '', etap: o.stage, etapP: '', opps: o.guid, oppName: o.name || 'TECS', raw: { IdentyfikatorCompanies: o.raw.IdentyfikatorCompanies || '', Opps_ID: o.raw.TECSGUID || '' } }); } });
+  document.querySelectorAll('[data-tdc]').forEach(b => b.onclick = () => { const c = DB.comp.find(x => x.id === +b.dataset.tdc);
+    noteModal({ firma: c.name, guid: c.guid, osoba: '', tel: '', contact: '', etap: '', etapP: '', opps: '', oppName: '', raw: { IdentyfikatorCompanies: c.guidRaw || '', Opps_ID: '' } }); });
   document.querySelectorAll('#tdSeg button').forEach(b => b.onclick = () => { ST.todo.plus7 = b.dataset.v === '1'; render(); });
   $('#tdSort').onclick = () => { ST.todo.desc = !ST.todo.desc; render(); };
   document.querySelectorAll('[data-done]').forEach(b => b.onclick = async () => { const n = DB.notes.find(x => x.id === +b.dataset.done); b.disabled = true;
