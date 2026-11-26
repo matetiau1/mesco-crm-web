@@ -450,7 +450,8 @@ function planData() {
   const pilne = opps.filter(o => o.days < 0).length + tecs.filter(o => o.days < 0).length + fu.length;
   // „Do zrobienia” — szybkie listy
   const openS = DB.sales.filter(o => o.grp === 'open' && mine(o));
-  const stale = openS.filter(o => o.idle != null && o.idle > 30);
+  openS.forEach(o => { const d = [o.lastNote, DB.lastByComp[o.compGuid]].filter(Boolean).sort((a, b) => b - a)[0] || o.openD; o.mv = d ? Math.round((TODAY - d) / 864e5) : null; });
+  const stale = openS.filter(o => o.mv != null && o.mv > 30);
   const overdue = openS.filter(o => o.close && o.days < 0);
   const kl = DB.comp.filter(c => c.status1 === 'Klient' && (!who || c.opiekun === who)).map(c => { const d = [DB.lastByComp[c.guid], DB.lastByComp['n:' + lc(c.name)]].filter(Boolean).sort((a, b) => b - a)[0] || null;
     return { c, last: d, ago: d ? Math.round((TODAY - d) / 864e5) : null }; });
@@ -503,7 +504,7 @@ const agoD = d => d == null ? '<span class="chip c-red">nigdy</span>' : `<span c
 function doZrobienia(P) {
   const card = (icon, c, bg, t, sub, id, cols, rows, def, empty) => `<div class="card panel dz">${ptitle(icon, c, bg, t, sub)}${table(id, cols, rows, def, { limit: 15, empty })}</div>`;
   const firmaO = o => `<a class="lnk" href="#oppsy/opp/${o.id}" title="${esc(o.name)}">${esc(o.comp)}</a>`;
-  const stC = [{ h: 'Firma', v: o => o.comp, f: firmaO }, { h: 'Wartość', key: 'eur', num: 1, f: o => vK(o.eur) }, { h: 'Etap', key: 'stage', f: o => esc(o.stage || '—') }, { h: 'Bez ruchu', key: 'idle', num: 1, f: o => agoD(o.idle) }];
+  const stC = [{ h: 'Firma', v: o => o.comp, f: firmaO }, { h: 'Wartość', key: 'eur', num: 1, f: o => vK(o.eur) }, { h: 'Etap', key: 'stage', f: o => esc(o.stage || '—') }, { h: 'Bez ruchu', key: 'mv', num: 1, f: o => agoD(o.mv) }];
   const ovC = [{ h: 'Firma', v: o => o.comp, f: firmaO }, { h: 'Wartość', key: 'eur', num: 1, f: o => vK(o.eur) }, { h: 'Etap', key: 'stage', f: o => esc(o.stage || '—') }, { h: 'Termin', key: 'close', num: 1, f: o => `<span class="mono">${ds(o.close)}</span>` }];
   const zC = [{ h: 'Klient', v: x => x.c.name, f: x => compLink(x.c.name, x.c.guid) }, { h: 'Ostatni kontakt', v: x => x.ago ?? 99999, num: 1, f: x => agoD(x.ago) }];
   const lC = [{ h: 'Firma', key: 'firma', f: l => `<a class="lnk" href="${SPU}Leady/DispForm.aspx?ID=${l.id}" target="_blank" rel="noopener">${esc(l.firma || '—')}</a>${l.osoba ? `<div style="font-size:11px;color:#9CA3AF">${esc(l.osoba)}</div>` : ''}` },
