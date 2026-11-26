@@ -138,6 +138,8 @@ const F = {
   MarketingKontakty: ['Imie','Nazwisko','Email','Telefon','Firma','Zrodlo','GUIDWebinar','GUIDKontaktu','Obecny','KonwertLead','FollowUp'],
   Contacts: ['Email','ContactGUID','IdentyfikatorCompanies','FirmaID','Imi_x0119_','Nazwisko','Stanowisko'],
   Webinary: ['Tytul','GUIDWebinar','DataWebinaru','Status','GrupaDocelowa'],
+  Leady: ['Firma','Imi_x0119_inazwisko','Data','ZrodloLookupId','OpiekunLookupId','OstatniaDataFollowUp','FollowUp','JakTrafil','Efekt','Status','Wartosc','Komentarz'],
+  Source: ['Title'],
 };
 async function loadAll() {
   loader('Pobieram dane z SharePoint…');
@@ -266,6 +268,16 @@ function build(R, users) {
   DB.mkt = R.MarketingKontakty.map(m => { const mail = lc(m.Email), c = (m.GUIDKontaktu && DB.contactByGuid[lc(m.GUIDKontaktu)]) || DB.contactByMail[mail] || null;
     return { id: m.id, mail, name: ((m.Imie || '') + ' ' + (m.Nazwisko || '')).replace(/\s+/g, ' ').trim(), tel: m.Telefon || '', firmaTxt: (m.Firma || '').trim(), zrodlo: (m.Zrodlo || '').trim(), web: DB.webBy[lc(m.GUIDWebinar)] || { guid: lc(m.GUIDWebinar), title: '(nieznane wydarzenie)', date: null },
       obecny: m.Obecny === 'Tak' ? true : m.Obecny === 'Nie' ? false : null, guidK: m.GUIDKontaktu || '', contact: c, lead: !!m.KonwertLead }; });
+  // leady
+  const src = {}; (R.Source || []).forEach(x => src[x.id] = x.Title || '');
+  const notesByName = {}; DB.notes.forEach(n => { if (n.firma && n.data) (notesByName[lc(n.firma)] = notesByName[lc(n.firma)] || []).push(n.data); });
+  DB.leads = (R.Leady || []).map(l => { const data = toD(l.Data), fu = toD(l.OstatniaDataFollowUp), firma = (l.Firma || '').trim();
+    const nd = (notesByName[lc(firma)] || []).filter(d => !data || d >= data);
+    const last = [data, fu, ...nd].filter(Boolean).sort((a, b) => b - a)[0] || null;
+    return { id: l.id, firma, osoba: (l.Imi_x0119_inazwisko || '').trim(), data, fu, status: l.Status || '', efekt: l.Efekt || '', jak: l.JakTrafil || '', zrodlo: src[+l.ZrodloLookupId] || '',
+      owner: uname(l.OpiekunLookupId), wart: num(l.Wartosc), last, idle: last ? Math.round((TODAY - last) / 864e5) : null, raw: l }; });
+  // ostatni kontakt (dowolna notatka) per firma
+  DB.lastByComp = {}; DB.notes.forEach(n => { if (!n.data) return; [n.guid, 'n:' + lc(n.firma)].forEach(k => { if (k && k !== 'n:' && (!DB.lastByComp[k] || n.data > DB.lastByComp[k])) DB.lastByComp[k] = n.data; }); });
   DB.quarters = [...new Map(DB.tecs.concat(DB.sales).filter(o => o.fq).map(o => [o.fq.key, o.fq])).values()].sort((a, b) => a.key - b.key);
 }
 
@@ -436,7 +448,18 @@ function planData() {
   const offers = offS.concat(offT).filter(x => x.cisza == null || x.cisza >= P.ciche).sort((a, b) => (b.cisza ?? 9999) - (a.cisza ?? 9999));
   const we = weekEnd(), inWeek = d => d && d >= TODAY && d <= we;
   const pilne = opps.filter(o => o.days < 0).length + tecs.filter(o => o.days < 0).length + fu.length;
-  return { who, opps, tecs, fu, offers, we, inWeek, pilne, total: opps.length + tecs.length + fu.length + offers.length };
+  // „Do zrobienia” — szybkie listy
+  const openS = DB.sales.filter(o => o.grp === 'open' && mine(o));
+  const stale = openS.filter(o => o.idle != null && o.idle > 30);
+  const overdue = openS.filter(o => o.close && o.days < 0);
+  const kl = DB.comp.filter(c => c.status1 === 'Klient' && (!who || c.opiekun === who)).map(c => { const d = [DB.lastByComp[c.guid], DB.lastByComp['n:' + lc(c.name)]].filter(Boolean).sort((a, b) => b - a)[0] || null;
+    return { c, last: d, ago: d ? Math.round((TODAY - d) / 864e5) : null }; });
+  const zan = kl.filter(x => x.ago == null || x.ago > 90);
+  const leadsOpen = DB.leads.filter(l => ['Nowy','Otwarty'].includes(l.status) && (!who || l.owner === who));
+  const leadsCold = leadsOpen.filter(l => l.idle == null || l.idle > 14);
+  const tecsFu = DB.tecs.filter(o => o.follow && o.follow < TODAY && !['Zamówione','Wystawiona faktura','Rezygnacja z TECS'].includes(o.stage) && mine(o));
+  return { who, opps, tecs, fu, offers, we, inWeek, pilne, total: opps.length + tecs.length + fu.length + offers.length,
+    openS, stale, overdue, kl, zan, leadsOpen, leadsCold, tecsFu };
 }
 const dueCell = (d, days, inWeek) => !d ? '<span class="chip c-amb">brak daty</span>' : `<span style="white-space:nowrap">${dpl(d)}</span> ${days < 0 ? `<span class="chip c-red">${-days} dni po</span>` : days === 0 ? '<span class="chip c-red">dziś</span>' : inWeek ? `<span class="chip c-amb">ten tydzień</span>` : `<span class="chip c-mut">za ${days} dni</span>`}`;
 const actBtns = (kind, id) => ME.staff ? `<button class="btn" data-pnote="${kind}|${id}" title="Dodaj notatkę">${svg('note')}</button>` : '';
@@ -468,11 +491,34 @@ VIEWS.plan = () => {
       ${kpi('TECSy do zrobienia (≤3 mies.)', P.tecs.length, `${eur(sum(P.tecs, o => o.value))} · ${P.tecs.filter(o => o.days < 0).length} po terminie`, 'TECSY', '#0D9488', '#E0F5F3')}
       ${kpi('Zaległe follow-upy', P.fu.length, P.fu.length ? 'najstarszy z ' + dpl(P.fu[0].fu) : 'wszystko zrobione', 'clock', '#DC2626', '#FEE2E2')}
       ${kpi('Oferty bez odpowiedzi', P.offers.length, `cisza ≥ ${S.ciche} dni`, 'box', '#D97706', '#FEF3E2')}</div></div>
+  ${doZrobienia(P)}
   ${sec('OPPSY', '#5B6CDB', '#EEF0FC', 'Szanse sprzedaży — zamknięcie w ciągu 30 dni', 'Status1 = Aktywny, Spodziewane zamknięcie ≤ dziś + 30 dni (także te po terminie)', table('pl1', opC, P.opps, { k: P.who ? 2 : 3, asc: true }, { empty: 'Brak szans z zamknięciem w najbliższych 30 dniach' }))}
   ${sec('TECSY', '#0D9488', '#E0F5F3', 'TECSy do zrobienia — koniec w ciągu 3 miesięcy', 'Etap: Przygotowanie oferty / Oferta wysłana, Koniec TECS ≤ dziś + 90 dni', table('pl2', tcC, P.tecs, { k: P.who ? 2 : 3, asc: true }, { empty: 'Brak TECS do odnowienia w najbliższych 3 miesiącach' }))}
   ${sec('clock', '#DC2626', '#FEE2E2', 'Zaległe follow-upy', 'Follow-up przed dzisiejszą datą, nieoznaczony jako zrobiony', table('pl3', fuC, P.fu, { k: 0, asc: true }, { empty: 'Brak zaległych follow-upów 🎉' }))}
   ${sec('box', '#D97706', '#FEF3E2', 'Wysłane oferty bez odpowiedzi', `Szanse z „oferta wysłana” (OFP) lub na etapie Oferta/Rewizja/Decyzja z ofertą + TECS „Oferta wysłana”, bez notatki od ≥ <select id="plCisza" style="height:24px;font-size:11.5px">${[7, 14, 21, 30].map(d => `<option ${S.ciche === d ? 'selected' : ''}>${d}</option>`).join('')}</select> dni`, table('pl4', ofC, P.offers, { k: P.who ? 6 : 7, asc: false }, { empty: 'Brak ofert czekających na odpowiedź' }))}`;
 };
+/* --- „Do zrobienia”: 5 krótkich list (maks. 15 pozycji) --- */
+const vK = v => v ? fmtK(v) + ' €' : '<span style="color:#9CA3AF">–</span>';
+const agoD = d => d == null ? '<span class="chip c-red">nigdy</span>' : `<span class="mono">${d} d</span>`;
+function doZrobienia(P) {
+  const card = (icon, c, bg, t, sub, id, cols, rows, def, empty) => `<div class="card panel dz">${ptitle(icon, c, bg, t, sub)}${table(id, cols, rows, def, { limit: 15, empty })}</div>`;
+  const firmaO = o => `<a class="lnk" href="#oppsy/opp/${o.id}" title="${esc(o.name)}">${esc(o.comp)}</a>`;
+  const stC = [{ h: 'Firma', v: o => o.comp, f: firmaO }, { h: 'Wartość', key: 'eur', num: 1, f: o => vK(o.eur) }, { h: 'Etap', key: 'stage', f: o => esc(o.stage || '—') }, { h: 'Bez ruchu', key: 'idle', num: 1, f: o => agoD(o.idle) }];
+  const ovC = [{ h: 'Firma', v: o => o.comp, f: firmaO }, { h: 'Wartość', key: 'eur', num: 1, f: o => vK(o.eur) }, { h: 'Etap', key: 'stage', f: o => esc(o.stage || '—') }, { h: 'Termin', key: 'close', num: 1, f: o => `<span class="mono">${ds(o.close)}</span>` }];
+  const zC = [{ h: 'Klient', v: x => x.c.name, f: x => compLink(x.c.name, x.c.guid) }, { h: 'Ostatni kontakt', v: x => x.ago ?? 99999, num: 1, f: x => agoD(x.ago) }];
+  const lC = [{ h: 'Firma', key: 'firma', f: l => `<a class="lnk" href="${SPU}Leady/DispForm.aspx?ID=${l.id}" target="_blank" rel="noopener">${esc(l.firma || '—')}</a>${l.osoba ? `<div style="font-size:11px;color:#9CA3AF">${esc(l.osoba)}</div>` : ''}` },
+    { h: 'Status', key: 'status' }, { h: 'Bez reakcji', v: l => l.idle ?? 99999, num: 1, f: l => l.idle == null ? '<span class="chip c-red">brak daty</span>' : `<span class="mono ${l.idle > 14 ? 'red' : ''}">${l.idle} d</span>` },
+    { h: 'Efekt / źródło', v: l => l.efekt || l.zrodlo || l.jak, f: l => esc([l.efekt, l.zrodlo || l.jak].filter(Boolean).join(' · ') || '—') }, { h: 'Wartość', key: 'wart', num: 1, f: l => l.wart ? fmtK(l.wart) : '<span style="color:#9CA3AF">–</span>' }];
+  const tC = [{ h: 'Firma', key: 'comp', f: o => compLink(o.comp, o.compGuid) }, { h: 'Wartość', key: 'value', num: 1, f: o => vK(o.value) }, { h: 'Etap', key: 'stage', f: o => esc(o.stage || '—') }, { h: 'Follow-up', key: 'follow', num: 1, f: o => `<span class="mono">${ds(o.follow)}</span>` }];
+  const who = P.who ? '' : ' (cały zespół)';
+  return `<div class="dz-h"><h2>Do zrobienia${who}</h2></div><div class="dzgrid">
+    ${card('OPPSY', '#D97706', '#FEF3E2', 'Zastałe szanse', `${P.stale.length} z ${P.openS.length} bez ruchu od ponad 30 dni · ${fmtK(sum(P.stale, o => o.eur))} €`, 'dz1', stC, P.stale, { k: 1, asc: false }, 'Wszystkie szanse mają ruch w ostatnich 30 dniach')}
+    ${card('KALENDARZ', '#DC2626', '#FEE2E2', 'Szanse po terminie', `${P.overdue.length} z datą zamknięcia w przeszłości · ${fmtK(sum(P.overdue, o => o.eur))} €`, 'dz2', ovC, P.overdue, { k: 1, asc: false }, 'Brak szans po terminie')}
+    ${card('users', '#5B6CDB', '#EEF0FC', 'Zaniedbani klienci', `${P.zan.length} z ${P.kl.length} klientów bez kontaktu od ponad 90 dni`, 'dz3', zC, P.zan, { k: 1, asc: false }, 'Każdy klient miał kontakt w ostatnich 90 dniach')}
+    ${card('phone', '#0D9488', '#E0F5F3', 'Leady bez reakcji', `${P.leadsCold.length} z ${P.leadsOpen.length} otwartych leadów bez reakcji od ponad 14 dni`, 'dz4', lC, P.leadsOpen, { k: 2, asc: false }, 'Brak otwartych leadów')}
+    ${card('TECSY', '#7C3AED', '#F1EAFE', 'TECS: zaległy follow-up', `${P.tecsFu.length} pozycji z minionym terminem follow-up`, 'dz5', tC, P.tecsFu, { k: 3, asc: true }, 'Brak zaległych follow-upów TECS')}
+  </div><div class="desc" style="margin:6px 2px 14px">Listy pokazują do 15 pozycji, domyślnie od największej wartości lub najdłuższego braku kontaktu (kliknij nagłówek, by zmienić sortowanie). Zaległe follow-upy z notatek: ${P.fu.length}.</div>`;
+}
 AFTER.plan = () => {
   $('#plWho').onchange = e => { ST.plan.who = e.target.value; render(); };
   $('#plCisza').onchange = e => { ST.plan.ciche = +e.target.value; render(); };
