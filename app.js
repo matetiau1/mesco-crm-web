@@ -578,7 +578,7 @@ function tpSection(P) {
     ${table('tp1', cols, L, { k: P.who ? 8 : 9, asc: false }, { empty: 'Brak klientów z aktywnym TechPoolem' })}</div>`;
 }
 function supSection(P) {
-  const K = clients().filter(c => !P.who || c.owners.includes(P.who)).map(c => ({ ...c, e: engage(c.guid, c.comp) }));
+  const K = clients().filter(c => !/^mesco\b/i.test(c.comp) && (!P.who || c.owners.includes(P.who))).map(c => ({ ...c, e: engage(c.guid, c.comp) }));
   const cols = [{ h: 'Klient', key: 'comp', f: c => `${compLink(c.comp, c.guid)}${c.tp ? ' <span class="chip c-vio">TP</span>' : ''}` }, { h: 'TECS', key: 'val', num: 1, f: c => `${vK(c.val)}<div style="font-size:11px;color:#9CA3AF">koniec za ${c.next} dni</div>` },
     { h: 'Zgłoszenia 90 dni', v: c => c.s.n90, num: 1, f: c => c.s.n90 || '<span class="chip c-red">0</span>' }, { h: 'Zgłoszenia 12 mies.', v: c => c.s.n365, num: 1 }, { h: 'Godziny 12 mies.', v: c => c.s.h365, num: 1, f: c => fmt(c.s.h365) },
     { h: 'h / 10 tys. TECS', key: 'h10', num: 1, f: c => c.h10 == null ? '—' : c.h10.toFixed(1).replace('.', ',') }, { h: 'Otwarte', v: c => c.s.open || 0, num: 1, f: c => c.s.open ? `<span class="chip c-amb">${c.s.open}</span>` : '0' },
@@ -602,7 +602,7 @@ AFTER.plan = () => {
 /* --- Kody demo — moi klienci: oś czasu + zaangażowanie (jak TechPool) --- */
 function pdData() {
   const S = ST.pd = ST.pd || { who: 'me', okres: 90 }, who = S.who === 'me' ? ME.name : S.who, od = addDays(TODAY, -S.okres);
-  const D = demos().filter(d => d.start && d.end && d.end >= od && (!who || d.owner === who || d.demoAdm === who || (DB.compBy[d.compGuid] || {}).opiekun === who));
+  const D = demos(true).filter(d => d.start && d.end && d.end >= od && (!who || d.owner === who || d.demoAdm === who || (DB.compBy[d.compGuid] || {}).opiekun === who));
   return { S, who, od, D: D.map(d => { const opps = DB.sales.filter(o => o.compGuid === d.compGuid && o.grp === 'open'); const dp = new Set(d.prods.map(normP));
     const hit = []; opps.forEach(o => oppProds(o).forEach(p => { if (dp.has(normP(p))) hit.push({ o, p }); }));
     return { ...d, opps, hit, e: engage(d.compGuid, d.comp, { opp: opps.length > 0, match: hit.length > 0 }), st: d.planned ? 'plan' : d.active ? (d.ending ? 'end7' : 'act') : 'done' }; }) };
@@ -1202,8 +1202,8 @@ VIEWS.klienci = () => {
 };
 
 /* ================= KODY DEMO ================= */
-function demos() {
-  return gf(DB.tecs, true).filter(o => o.grp === 'demo').map(d => {
+function demos(noG) {
+  return (noG ? DB.tecs : gf(DB.tecs, true)).filter(o => o.grp === 'demo').map(d => {
     const after = DB.tecs.concat(DB.sales).filter(p => (p.compGuid === d.compGuid && d.compGuid) && p !== d && p.grp !== 'demo' && ((p.start || p.openD || p.close || p.end) && d.start && (p.start || p.openD || p.close || p.end) >= d.start));
     const next = after.sort((a, b) => (a.start || a.openD || a.close || a.end) - (b.start || b.openD || b.close || b.end))[0] || null;
     const prods = d.lines.map(l => l.prod).filter(Boolean);
