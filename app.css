@@ -200,3 +200,13 @@ svg text{fill:var(--mut);font-size:11px;font-family:inherit}
 .mono{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:12px}
 .mono.red{color:#DC2626;font-weight:600}
 @media (max-width:720px){.dzgrid{grid-template-columns:1fr}}
+/* TechPool / demo — ocena, kontakt, oś czasu */
+.sbar{display:inline-block;width:54px;height:6px;border-radius:3px;background:#EEF0F4;vertical-align:middle;overflow:hidden}
+.sbar i{display:block;height:100%}
+.kont{display:inline-flex;gap:8px;white-space:nowrap;font-size:12px}
+.pch{display:flex;flex-wrap:wrap;gap:3px;max-width:260px}
+.gantt{overflow-x:auto;margin-top:10px}
+.gantt .gl{font-size:11.5px;fill:#374151}
+.gantt .gs{font-size:10.5px;fill:#6B7280}
+.glegend{display:flex;gap:14px;font-size:11.5px;color:#6B7280;margin:4px 2px}
+.glegend i{display:inline-block;width:12px;height:8px;border-radius:2px;margin-right:5px;vertical-align:middle}
