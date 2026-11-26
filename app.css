@@ -191,3 +191,12 @@ svg text{fill:var(--mut);font-size:11px;font-family:inherit}
 .lostp button{height:44px;border:1px solid var(--bd);background:#fff;color:var(--tx2);font:inherit;font-size:13px;cursor:pointer}
 .lostp button.on{border-color:var(--red);background:var(--red-l);color:var(--red)}
 .ntext{background:var(--soft);padding:12px 14px;margin-top:12px;white-space:pre-wrap;font-size:13px;color:var(--tx2);max-height:60vh;overflow:auto}
+/* Plan na tydzień — „Do zrobienia” */
+.dz-h h2{font-size:15px;font-weight:700;color:#111827;margin:4px 2px 8px}
+.dzgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(520px,1fr));gap:14px;align-items:start}
+.dzgrid .dz{margin:0}
+.dzgrid .dz .ptitle h2{font-size:14px}
+.dzgrid .dz td,.dzgrid .dz th{padding:6px 8px;font-size:12.5px}
+.mono{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:12px}
+.mono.red{color:#DC2626;font-weight:600}
+@media (max-width:720px){.dzgrid{grid-template-columns:1fr}}
